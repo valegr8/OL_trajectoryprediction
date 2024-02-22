@@ -42,6 +42,12 @@ class minFDE(Metric):
         self.sum += torch.norm(pred_topk[torch.arange(pred.size(0)), :, inds_last] -
                                target[torch.arange(pred.size(0)), inds_last].unsqueeze(-2),
                                p=2, dim=-1).min(dim=-1)[0].sum()
+        
+        single_min_fde = torch.norm(pred_topk[torch.arange(pred.size(0)), :, inds_last] -
+                               target[torch.arange(pred.size(0)), inds_last].unsqueeze(-2),
+                               p=2, dim=-1).min(dim=-1)[0]
+        print("target", target.shape)
+        print("min_fde", single_min_fde)
         self.count += pred.size(0)
 
     def compute(self) -> torch.Tensor:

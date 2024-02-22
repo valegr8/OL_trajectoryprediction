@@ -15,6 +15,7 @@ from argparse import ArgumentParser
 
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
+import torch
 
 from datasets import ArgoverseV2Dataset
 from predictors import QCNet
@@ -42,6 +43,10 @@ if __name__ == '__main__':
         'argoverse_v2': ArgoverseV2Dataset,
     }[model.dataset](root=args.root, split='val',
                      transform=TargetBuilder(model.num_historical_steps, model.num_future_steps))
+    
+    val_dataset = val_dataset[:10] 
+    #print(len(val_dataset))
+
     dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)
     trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp')

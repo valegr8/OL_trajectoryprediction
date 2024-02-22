@@ -1,4 +1,4 @@
-name: QCNet
+name: qcnet
 channels:
   - pyg
   - pytorch

@@ -34,6 +34,8 @@ from metrics import minFHE
 from modules import QCNetDecoder
 from modules import QCNetEncoder
 
+import pandas as pd
+
 try:
     from av2.datasets.motion_forecasting.eval.submission import ChallengeSubmission
 except ImportError:
@@ -218,7 +220,15 @@ class QCNet(pl.LightningModule):
         if isinstance(data, Batch):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
 
-        print(data['scenario_id'])
+        #print(data['scenario_id'])
+
+        # Create an empty DataFrame
+        df_metrics = pd.DataFrame(columns=['scenario_id'])
+
+        # Assign the tensor to the 'scenario_id' column
+        df_metrics['scenario_id'] = data['scenario_id']
+
+        print(df_metrics)
 
         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
         cls_mask = data['agent']['predict_mask'][:, -1]
@@ -283,18 +293,24 @@ class QCNet(pl.LightningModule):
         pi_eval = F.softmax(pi[eval_mask], dim=-1)
         gt_eval = gt[eval_mask]
 
-        brier = self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
-                          valid_mask=valid_mask_eval)
-        min_ade = self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
-                           valid_mask=valid_mask_eval)
+        brier = self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval)
+        min_ade = self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval)
         min_ahe = self.minAHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval)
-        min_fde = self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
-                           valid_mask=valid_mask_eval)
+        min_fde = self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,valid_mask=valid_mask_eval)
 
         min_fhe = self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval)
-        min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
-                       valid_mask=valid_mask_eval)
+        min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval)
         
+
+        df_metrics['val_Brier'] = brier
+        df_metrics['val_minADE'] = min_ade
+        df_metrics['val_minAHE'] = min_ahe
+        df_metrics['val_minFDE'] = min_fde
+        df_metrics['val_minFHE'] = min_fhe
+        df_metrics['val_minMR'] = min_mr
+
+        print(df_metrics)
+
 
         # print('val_Brier: ', brier)
         # print('val_minADE: ', min_ade)

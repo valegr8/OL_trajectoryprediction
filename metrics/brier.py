@@ -36,7 +36,7 @@ class Brier(Metric):
                prob: Optional[torch.Tensor] = None,
                valid_mask: Optional[torch.Tensor] = None,
                keep_invalid_final_step: bool = True,
-               min_criterion: str = 'FDE') -> None:
+               min_criterion: str = 'FDE') -> torch.Tensor:
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, prob_topk = topk(self.max_guesses, pred, prob)
         if min_criterion == 'FDE':

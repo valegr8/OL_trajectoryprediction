@@ -36,7 +36,7 @@ class minADE(Metric):
                prob: Optional[torch.Tensor] = None,
                valid_mask: Optional[torch.Tensor] = None,
                keep_invalid_final_step: bool = True,
-               min_criterion: str = 'FDE') -> None:
+               min_criterion: str = 'FDE') -> torch.Tensor:
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, _ = topk(self.max_guesses, pred, prob)
         if min_criterion == 'FDE':
@@ -56,6 +56,15 @@ class minADE(Metric):
         self.count += pred.size(0)
 
         print('[MIN ADE] ',min_ade)
+
+        print(pred_topk.shape)
+        print(target.shape)
+        print(valid_mask.shape)
+
+
+        if min_ade.numel() == 0:
+            raise ValueError("min_ade is empty.")
+
 
         return min_ade
 

@@ -15,7 +15,7 @@ from argparse import ArgumentParser
 
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
-import torch
+import os
 
 from datasets import ArgoverseV2Dataset
 from predictors import QCNet
@@ -34,6 +34,7 @@ if __name__ == '__main__':
     parser.add_argument('--accelerator', type=str, default='auto')
     parser.add_argument('--devices', type=int, default=1)
     parser.add_argument('--ckpt_path', type=str, required=True)
+    parser.add_argument('--metrics_savepath', type=str, default='val_metrics.csv')
     args = parser.parse_args()
 
     model = {
@@ -44,8 +45,13 @@ if __name__ == '__main__':
     }[model.dataset](root=args.root, split='val',
                      transform=TargetBuilder(model.num_historical_steps, model.num_future_steps))
     
-    val_dataset = val_dataset[:10] 
+    #val_dataset = val_dataset[:10] 
     #print(len(val_dataset))
+
+    # Check if the file exists
+    if os.path.exists(args.metrics_savepath):
+        # If it exists, delete it
+        os.remove(args.metrics_savepath)
 
     dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)

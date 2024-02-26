@@ -20,6 +20,7 @@ from metrics.utils import topk
 from metrics.utils import valid_filter
 from utils import wrap_angle
 
+import pandas as pd
 
 class minAHE(Metric):
 
@@ -37,7 +38,8 @@ class minAHE(Metric):
                prob: Optional[torch.Tensor] = None,
                valid_mask: Optional[torch.Tensor] = None,
                keep_invalid_final_step: bool = True,
-               min_criterion: str = 'FDE') -> torch.Tensor:
+               min_criterion: str = 'FDE',
+               df_metrics: pd.DataFrame = None) -> torch.Tensor:
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, _ = topk(self.max_guesses, pred, prob)
         if min_criterion == 'FDE':
@@ -55,7 +57,9 @@ class minAHE(Metric):
         self.sum += min_ahe.sum()
         self.count += pred.size(0)
 
-        print('[MIN AHE] ', min_ahe)
+        df_metrics['val_minAHE'] = torch.Tensor.cpu(min_ahe)
+
+        #print('[MIN AHE] ', min_ahe)
 
         return min_ahe
 

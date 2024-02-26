@@ -19,6 +19,8 @@ from torchmetrics import Metric
 from metrics.utils import topk
 from metrics.utils import valid_filter
 
+import pandas as pd
+
 
 class ProbMR(Metric):
 
@@ -37,7 +39,7 @@ class ProbMR(Metric):
                valid_mask: Optional[torch.Tensor] = None,
                keep_invalid_final_step: bool = True,
                miss_criterion: str = 'FDE',
-               miss_threshold: float = 2.0) -> torch.Tensor:
+               miss_threshold: float = 2.0,) -> None:
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, prob_topk = topk(self.max_guesses, pred, prob)
         if miss_criterion == 'FDE':

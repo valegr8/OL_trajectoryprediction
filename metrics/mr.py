@@ -19,6 +19,7 @@ from torchmetrics import Metric
 from metrics.utils import topk
 from metrics.utils import valid_filter
 
+import pandas as pd
 
 class MR(Metric):
 
@@ -37,7 +38,8 @@ class MR(Metric):
                valid_mask: Optional[torch.Tensor] = None,
                keep_invalid_final_step: bool = True,
                miss_criterion: str = 'FDE',
-               miss_threshold: float = 2.0):
+               miss_threshold: float = 2.0,
+               df_metrics: pd.DataFrame = None):
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, _ = topk(self.max_guesses, pred, prob)
         if miss_criterion == 'FDE':
@@ -55,7 +57,9 @@ class MR(Metric):
             raise ValueError('{} is not a valid criterion'.format(miss_criterion))
         self.count += pred.size(0)
 
-        print('[MIN MR] ',min_mr)
+        df_metrics['val_minMR'] = torch.Tensor.cpu(min_mr)
+
+        #print('[MIN MR] ',min_mr)
 
         return min_mr
 

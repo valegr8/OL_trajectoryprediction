@@ -19,6 +19,8 @@ from torchmetrics import Metric
 from metrics.utils import topk
 from metrics.utils import valid_filter
 
+import pandas as pd
+
 
 class minFDE(Metric):
 
@@ -35,7 +37,8 @@ class minFDE(Metric):
                target: torch.Tensor,
                prob: Optional[torch.Tensor] = None,
                valid_mask: Optional[torch.Tensor] = None,
-               keep_invalid_final_step: bool = True) -> torch.Tensor:
+               keep_invalid_final_step: bool = True,
+               df_metrics: pd.DataFrame = None) -> torch.Tensor:
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, _ = topk(self.max_guesses, pred, prob)
         inds_last = (valid_mask * torch.arange(1, valid_mask.size(-1) + 1, device=self.device)).argmax(dim=-1)
@@ -47,7 +50,9 @@ class minFDE(Metric):
         
         self.count += pred.size(0)
 
-        print('[MIN FDE] ', min_fde)
+        df_metrics['val_minFDE'] = torch.Tensor.cpu(min_fde)
+
+        #print('[MIN FDE] ', min_fde)
 
         return min_fde
 

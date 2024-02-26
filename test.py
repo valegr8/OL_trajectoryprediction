@@ -19,6 +19,8 @@ from torch_geometric.loader import DataLoader
 from datasets import ArgoverseV2Dataset
 from predictors import QCNet
 
+import os
+
 if __name__ == '__main__':
     pl.seed_everything(2023, workers=True)
 
@@ -42,8 +44,12 @@ if __name__ == '__main__':
         'argoverse_v2': ArgoverseV2Dataset,
     }[model.dataset](root=args.root, split='test')
 
-    
+    metrics_savepath='test_metrics.csv'
 
+    # Check if the file exists
+    if os.path.exists(metrics_savepath):
+        # If it exists, delete it
+        os.remove(metrics_savepath)
 
     test_dataset = test_dataset[:10] 
     print("test dataset: ", len(test_dataset))

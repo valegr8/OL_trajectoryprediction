@@ -19,6 +19,8 @@ from torchmetrics import Metric
 from metrics.utils import topk
 from metrics.utils import valid_filter
 
+import pandas as pd
+
 
 class Brier(Metric):
 
@@ -36,7 +38,8 @@ class Brier(Metric):
                prob: Optional[torch.Tensor] = None,
                valid_mask: Optional[torch.Tensor] = None,
                keep_invalid_final_step: bool = True,
-               min_criterion: str = 'FDE') -> torch.Tensor:
+               min_criterion: str = 'FDE',
+               df_metrics: pd.DataFrame = None) -> torch.Tensor:
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, prob_topk = topk(self.max_guesses, pred, prob)
         if min_criterion == 'FDE':
@@ -53,7 +56,9 @@ class Brier(Metric):
         self.sum += brier.sum()
         self.count += pred.size(0)
 
-        print('[BRIER] ',brier)
+        df_metrics['val_Brier'] = torch.Tensor.cpu(brier)
+
+        #print('[BRIER] ',brier)
 
         return brier
 

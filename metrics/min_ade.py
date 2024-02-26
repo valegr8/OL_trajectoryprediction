@@ -19,6 +19,8 @@ from torchmetrics import Metric
 from metrics.utils import topk
 from metrics.utils import valid_filter
 
+import pandas as pd
+
 
 class minADE(Metric):
 
@@ -36,7 +38,8 @@ class minADE(Metric):
                prob: Optional[torch.Tensor] = None,
                valid_mask: Optional[torch.Tensor] = None,
                keep_invalid_final_step: bool = True,
-               min_criterion: str = 'FDE') -> torch.Tensor:
+               min_criterion: str = 'FDE',
+               df_metrics: pd.DataFrame = None) -> torch.Tensor:
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, _ = topk(self.max_guesses, pred, prob)
         if min_criterion == 'FDE':
@@ -55,11 +58,13 @@ class minADE(Metric):
             raise ValueError('{} is not a valid criterion'.format(min_criterion))
         self.count += pred.size(0)
 
-        print('[MIN ADE] ',min_ade)
+        df_metrics['val_minADE'] = torch.Tensor.cpu(min_ade)
 
-        print(pred_topk.shape)
-        print(target.shape)
-        print(valid_mask.shape)
+        #print('[MIN ADE] ',min_ade)
+
+        # print(pred_topk.shape)
+        # print(target.shape)
+        # print(valid_mask.shape)
 
 
         if min_ade.numel() == 0:

@@ -228,8 +228,6 @@ class QCNet(pl.LightningModule):
         # Assign the tensor to the 'scenario_id' column
         df_metrics['scenario_id'] = data['scenario_id']
 
-        print(df_metrics)
-
         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
         cls_mask = data['agent']['predict_mask'][:, -1]
         pred = self(data)
@@ -293,23 +291,26 @@ class QCNet(pl.LightningModule):
         pi_eval = F.softmax(pi[eval_mask], dim=-1)
         gt_eval = gt[eval_mask]
 
-        brier = self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval)
-        min_ade = self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval)
-        min_ahe = self.minAHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval)
-        min_fde = self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,valid_mask=valid_mask_eval)
+        brier = self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
+        min_ade = self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
+        min_ahe = self.minAHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
+        min_fde = self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,valid_mask=valid_mask_eval, df_metrics=df_metrics)
 
-        min_fhe = self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval)
-        min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval)
+        min_fhe = self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
+        min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
         
 
-        df_metrics['val_Brier'] = brier
-        df_metrics['val_minADE'] = min_ade
-        df_metrics['val_minAHE'] = min_ahe
-        df_metrics['val_minFDE'] = min_fde
-        df_metrics['val_minFHE'] = min_fhe
-        df_metrics['val_minMR'] = min_mr
+        # df_metrics['val_Brier'] = brier
+        # df_metrics['val_minADE'] = min_ade
+        # df_metrics['val_minAHE'] = min_ahe
+        # df_metrics['val_minFDE'] = min_fde
+        # df_metrics['val_minFHE'] = min_fhe
+        # df_metrics['val_minMR'] = min_mr
 
-        print(df_metrics)
+        # print(df_metrics)
+
+        # save to csv
+        df_metrics.to_csv('val_metrics.csv', mode='a', index=False, header=False)
 
 
         # print('val_Brier: ', brier)
@@ -338,6 +339,14 @@ class QCNet(pl.LightningModule):
         # print("DATA",data)
         # print("PRED",pred)
 
+        # Create an empty DataFrame
+        df_metrics = pd.DataFrame(columns=['scenario_id'])
+
+        # Assign the tensor to the 'scenario_id' column
+        df_metrics['scenario_id'] = data['scenario_id']
+
+        print(df_metrics)
+
         if self.output_head:
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['loc_refine_head'],
@@ -347,7 +356,11 @@ class QCNet(pl.LightningModule):
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
+        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
 
+        reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
+
+        valid_mask_eval = reg_mask[eval_mask]
 
         if self.dataset == 'argoverse_v2':
             eval_mask = data['agent']['category'] == 3
@@ -376,6 +389,23 @@ class QCNet(pl.LightningModule):
                 self.test_predictions[data['scenario_id']] = (pi_eval[0], {eval_id[0]: traj_eval[0]})
         else:
             raise ValueError('{} is not a valid dataset'.format(self.dataset))
+        
+        gt_eval = gt[eval_mask]
+
+        brier = self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
+        min_ade = self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
+        min_ahe = self.minAHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
+        min_fde = self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,valid_mask=valid_mask_eval, df_metrics=df_metrics)
+
+        min_fhe = self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
+        min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
+
+        print(df_metrics)
+
+        # save to csv
+        df_metrics.to_csv('test_metrics.csv', mode='a', index=False, header=False)
+
+
 
     def on_test_end(self):
         if self.dataset == 'argoverse_v2':

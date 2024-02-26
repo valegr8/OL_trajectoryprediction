@@ -49,8 +49,13 @@ class Brier(Metric):
                          valid_mask.unsqueeze(1)).sum(dim=-1).argmin(dim=-1)
         else:
             raise ValueError('{} is not a valid criterion'.format(min_criterion))
-        self.sum += (1.0 - prob_topk[torch.arange(pred.size(0)), inds_best]).pow(2).sum()
+        brier = (1.0 - prob_topk[torch.arange(pred.size(0)), inds_best]).pow(2)
+        self.sum += brier.sum()
         self.count += pred.size(0)
+
+        print('[BRIER] ',brier)
+
+        return brier
 
     def compute(self) -> torch.Tensor:
         return self.sum / self.count

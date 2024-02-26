@@ -39,16 +39,17 @@ class minFDE(Metric):
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, _ = topk(self.max_guesses, pred, prob)
         inds_last = (valid_mask * torch.arange(1, valid_mask.size(-1) + 1, device=self.device)).argmax(dim=-1)
-        self.sum += torch.norm(pred_topk[torch.arange(pred.size(0)), :, inds_last] -
-                               target[torch.arange(pred.size(0)), inds_last].unsqueeze(-2),
-                               p=2, dim=-1).min(dim=-1)[0].sum()
-        
-        single_min_fde = torch.norm(pred_topk[torch.arange(pred.size(0)), :, inds_last] -
+               
+        min_fde = torch.norm(pred_topk[torch.arange(pred.size(0)), :, inds_last] -
                                target[torch.arange(pred.size(0)), inds_last].unsqueeze(-2),
                                p=2, dim=-1).min(dim=-1)[0]
-        print("target", target.shape)
-        print("min_fde", single_min_fde)
+        self.sum += min_fde.sum()
+        
         self.count += pred.size(0)
+
+        print('[MIN FDE] ', min_fde)
+
+        return min_fde
 
     def compute(self) -> torch.Tensor:
         return self.sum / self.count

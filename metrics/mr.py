@@ -42,16 +42,22 @@ class MR(Metric):
         pred_topk, _ = topk(self.max_guesses, pred, prob)
         if miss_criterion == 'FDE':
             inds_last = (valid_mask * torch.arange(1, valid_mask.size(-1) + 1, device=self.device)).argmax(dim=-1)
-            self.sum += (torch.norm(pred_topk[torch.arange(pred.size(0)), :, inds_last] -
+            min_mr = (torch.norm(pred_topk[torch.arange(pred.size(0)), :, inds_last] -
                                     target[torch.arange(pred.size(0)), inds_last].unsqueeze(-2),
-                                    p=2, dim=-1).min(dim=-1)[0] > miss_threshold).sum()
+                                    p=2, dim=-1).min(dim=-1)[0] > miss_threshold)
+            self.sum += min_mr.sum()
         elif miss_criterion == 'MAXDE':
-            self.sum += (((torch.norm(pred_topk - target.unsqueeze(1),
+            min_mr = (((torch.norm(pred_topk - target.unsqueeze(1),
                                       p=2, dim=-1) * valid_mask.unsqueeze(1)).max(dim=-1)[0]).min(dim=-1)[0] >
-                         miss_threshold).sum()
+                         miss_threshold)
+            self.sum += min_mr.sum()
         else:
             raise ValueError('{} is not a valid criterion'.format(miss_criterion))
         self.count += pred.size(0)
+
+        print('[MIN MR] ',min_mr)
+
+        return min_mr
 
     def compute(self) -> torch.Tensor:
         return self.sum / self.count

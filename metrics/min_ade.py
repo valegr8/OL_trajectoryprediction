@@ -44,14 +44,20 @@ class minADE(Metric):
             inds_best = torch.norm(
                 pred_topk[torch.arange(pred.size(0)), :, inds_last] -
                 target[torch.arange(pred.size(0)), inds_last].unsqueeze(-2), p=2, dim=-1).argmin(dim=-1)
-            self.sum += ((torch.norm(pred_topk[torch.arange(pred.size(0)), inds_best] - target, p=2, dim=-1) *
-                          valid_mask).sum(dim=-1) / valid_mask.sum(dim=-1)).sum()
+            min_ade = ((torch.norm(pred_topk[torch.arange(pred.size(0)), inds_best] - target, p=2, dim=-1) *
+                          valid_mask).sum(dim=-1) / valid_mask.sum(dim=-1))
+            self.sum += min_ade.sum()
         elif min_criterion == 'ADE':
-            self.sum += ((torch.norm(pred_topk - target.unsqueeze(1), p=2, dim=-1) *
-                          valid_mask.unsqueeze(1)).sum(dim=-1).min(dim=-1)[0] / valid_mask.sum(dim=-1)).sum()
+            min_ade = ((torch.norm(pred_topk - target.unsqueeze(1), p=2, dim=-1) *
+                          valid_mask.unsqueeze(1)).sum(dim=-1).min(dim=-1)[0] / valid_mask.sum(dim=-1))
+            self.sum += min_ade.sum()
         else:
             raise ValueError('{} is not a valid criterion'.format(min_criterion))
         self.count += pred.size(0)
+
+        print('[MIN ADE] ',min_ade)
+
+        return min_ade
 
     def compute(self) -> torch.Tensor:
         return self.sum / self.count

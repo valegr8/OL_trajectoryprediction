@@ -43,9 +43,17 @@ class minFHE(Metric):
         inds_best = torch.norm(
             pred_topk[torch.arange(pred.size(0)), :, inds_last, :-1] -
             target[torch.arange(pred.size(0)), inds_last, :-1].unsqueeze(-2), p=2, dim=-1).argmin(dim=-1)
-        self.sum += wrap_angle(pred_topk[torch.arange(pred.size(0)), inds_best, inds_last, -1] -
-                               target[torch.arange(pred.size(0)), inds_last, -1]).abs().sum()
+
+        min_fhe = wrap_angle(pred_topk[torch.arange(pred.size(0)), inds_best, inds_last, -1] -
+                               target[torch.arange(pred.size(0)), inds_last, -1]).abs()
+        
+        self.sum += min_fhe.sum()
+
         self.count += pred.size(0)
+
+        print('[MIN FHE] ',min_fhe)
+
+        return min_fhe
 
     def compute(self) -> torch.Tensor:
         return self.sum / self.count

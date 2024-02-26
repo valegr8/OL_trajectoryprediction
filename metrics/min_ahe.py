@@ -50,9 +50,14 @@ class minAHE(Metric):
                          valid_mask.unsqueeze(1)).sum(dim=-1).argmin(dim=-1)
         else:
             raise ValueError('{} is not a valid criterion'.format(min_criterion))
-        self.sum += ((wrap_angle(pred_topk[torch.arange(pred.size(0)), inds_best, :, -1] - target[..., -1]).abs() *
-                      valid_mask).sum(dim=-1) / valid_mask.sum(dim=-1)).sum()
+        min_ahe = ((wrap_angle(pred_topk[torch.arange(pred.size(0)), inds_best, :, -1] - target[..., -1]).abs() *
+                      valid_mask).sum(dim=-1) / valid_mask.sum(dim=-1))
+        self.sum += min_ahe.sum()
         self.count += pred.size(0)
+
+        print('[MIN AHE] ', min_ahe)
+
+        return min_ahe
 
     def compute(self) -> torch.Tensor:
         return self.sum / self.count

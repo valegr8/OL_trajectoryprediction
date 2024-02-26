@@ -154,6 +154,7 @@ class QCNet(pl.LightningModule):
         self.test_predictions = dict()
 
     def forward(self, data: HeteroData):
+       # print(data)
         scene_enc = self.encoder(data)
         pred = self.decoder(data, scene_enc)
         return pred
@@ -182,6 +183,11 @@ class QCNet(pl.LightningModule):
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
+        
+        print('OUTPUT DIM: ', self.output_dim)
+
+        print('GT: ', gt)
+        
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
                               gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
@@ -211,6 +217,9 @@ class QCNet(pl.LightningModule):
                         batch_idx):
         if isinstance(data, Batch):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
+
+        print(data['scenario_id'])
+
         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
         cls_mask = data['agent']['predict_mask'][:, -1]
         pred = self(data)
@@ -230,6 +239,11 @@ class QCNet(pl.LightningModule):
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
+        
+        #print('OUTPUT DIM: ', self.output_dim)
+
+        print('GT shape: ', gt.shape)
+        
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
                               gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
@@ -269,16 +283,28 @@ class QCNet(pl.LightningModule):
         pi_eval = F.softmax(pi[eval_mask], dim=-1)
         gt_eval = gt[eval_mask]
 
-        self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
+        brier = self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
                           valid_mask=valid_mask_eval)
-        self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
+        min_ade = self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
                            valid_mask=valid_mask_eval)
-        self.minAHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval)
-        self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
+        min_ahe = self.minAHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval)
+        min_fde = self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
                            valid_mask=valid_mask_eval)
-        self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval)
-        self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
+
+        min_fhe = self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval)
+        min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,
                        valid_mask=valid_mask_eval)
+        
+
+        # print('val_Brier: ', brier)
+        # print('val_minADE: ', min_ade)
+        # print('val_minAHE: ', min_ahe)
+        # print('val_minFDE: ', min_fde)
+        # print('val_minFHE: ', min_fhe)
+        # print('val_minMR: ', min_mr)
+
+
+        
         self.log('val_Brier', self.Brier, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
         self.log('val_minADE', self.minADE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
         self.log('val_minAHE', self.minAHE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
@@ -292,6 +318,10 @@ class QCNet(pl.LightningModule):
         if isinstance(data, Batch):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
         pred = self(data)
+
+        # print("DATA",data)
+        # print("PRED",pred)
+
         if self.output_head:
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['loc_refine_head'],
@@ -301,6 +331,8 @@ class QCNet(pl.LightningModule):
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
+
+
         if self.dataset == 'argoverse_v2':
             eval_mask = data['agent']['category'] == 3
         else:
@@ -331,8 +363,9 @@ class QCNet(pl.LightningModule):
 
     def on_test_end(self):
         if self.dataset == 'argoverse_v2':
-            ChallengeSubmission(self.test_predictions).to_parquet(
-                Path(self.submission_dir) / f'{self.submission_file_name}.parquet')
+            save_path = Path(self.submission_dir) / f'{self.submission_file_name}.parquet'
+            ChallengeSubmission(self.test_predictions).to_parquet(save_path)
+            print('saved in: ', save_path)
         else:
             raise ValueError('{} is not a valid dataset'.format(self.dataset))
 

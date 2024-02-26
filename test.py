@@ -25,7 +25,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--model', type=str, required=True)
     parser.add_argument('--root', type=str, required=True)
-    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--pin_memory', type=bool, default=True)
     parser.add_argument('--persistent_workers', type=bool, default=True)
@@ -40,6 +40,9 @@ if __name__ == '__main__':
     test_dataset = {
         'argoverse_v2': ArgoverseV2Dataset,
     }[model.dataset](root=args.root, split='test')
+
+    test_dataset = test_dataset[:10] 
+    print("test dataset: ", len(test_dataset))
     dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)
     trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp')

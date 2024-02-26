@@ -223,7 +223,7 @@ class QCNet(pl.LightningModule):
         #print(data['scenario_id'])
 
         # Create an empty DataFrame
-        df_metrics = pd.DataFrame(columns=['scenario_id'])
+        df_metrics = pd.DataFrame(columns=['scenario_id','val_Brier','val_minADE','val_minAHE', 'val_minFDE','val_minFHE','val_minMR'])
 
         # Assign the tensor to the 'scenario_id' column
         df_metrics['scenario_id'] = data['scenario_id']
@@ -246,6 +246,7 @@ class QCNet(pl.LightningModule):
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
+
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
         
         #print('OUTPUT DIM: ', self.output_dim)
@@ -340,12 +341,10 @@ class QCNet(pl.LightningModule):
         # print("PRED",pred)
 
         # Create an empty DataFrame
-        df_metrics = pd.DataFrame(columns=['scenario_id'])
+        df_metrics = pd.DataFrame(columns=['scenario_id','val_Brier','val_minADE','val_minAHE', 'val_minFDE','val_minFHE','val_minMR'])
 
         # Assign the tensor to the 'scenario_id' column
         df_metrics['scenario_id'] = data['scenario_id']
-
-        print(df_metrics)
 
         if self.output_head:
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
@@ -360,7 +359,6 @@ class QCNet(pl.LightningModule):
 
         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
 
-        valid_mask_eval = reg_mask[eval_mask]
 
         if self.dataset == 'argoverse_v2':
             eval_mask = data['agent']['category'] == 3
@@ -378,18 +376,7 @@ class QCNet(pl.LightningModule):
                                  rot_mat.unsqueeze(1)) + origin_eval[:, :2].reshape(-1, 1, 1, 2)
         pi_eval = F.softmax(pi[eval_mask], dim=-1)
 
-        traj_eval = traj_eval.cpu().numpy()
-        pi_eval = pi_eval.cpu().numpy()
-        if self.dataset == 'argoverse_v2':
-            eval_id = list(compress(list(chain(*data['agent']['id'])), eval_mask))
-            if isinstance(data, Batch):
-                for i in range(data.num_graphs):
-                    self.test_predictions[data['scenario_id'][i]] = (pi_eval[i], {eval_id[i]: traj_eval[i]})
-            else:
-                self.test_predictions[data['scenario_id']] = (pi_eval[0], {eval_id[0]: traj_eval[0]})
-        else:
-            raise ValueError('{} is not a valid dataset'.format(self.dataset))
-        
+        valid_mask_eval = reg_mask[eval_mask]
         gt_eval = gt[eval_mask]
 
         brier = self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
@@ -400,11 +387,20 @@ class QCNet(pl.LightningModule):
         min_fhe = self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
         min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
 
-        print(df_metrics)
+        traj_eval = traj_eval.cpu().numpy()
+        pi_eval = pi_eval.cpu().numpy()
+        if self.dataset == 'argoverse_v2':
+            eval_id = list(compress(list(chain(*data['agent']['id'])), eval_mask))
+            if isinstance(data, Batch):
+                for i in range(data.num_graphs):
+                    self.test_predictions[data['scenario_id'][i]] = {eval_id[i]: (traj_eval[i], pi_eval[i])}
+            else:
+                self.test_predictions[data['scenario_id'][i]] = {eval_id[0]: (traj_eval[0], pi_eval[0])}
+        else:
+            raise ValueError('{} is not a valid dataset'.format(self.dataset))
 
         # save to csv
         df_metrics.to_csv('test_metrics.csv', mode='a', index=False, header=False)
-
 
 
     def on_test_end(self):

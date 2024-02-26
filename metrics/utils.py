@@ -68,6 +68,7 @@ def valid_filter(
         filter_mask = valid_mask.any(dim=-1)
     else:
         filter_mask = valid_mask[:, -1]
+
     pred = pred[filter_mask]
     target = target[filter_mask]
     if prob is not None:

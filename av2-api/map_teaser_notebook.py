@@ -383,7 +383,7 @@ def visualize_ego_pose_and_lane_markings(
 @click.option(
     "-d",
     "--data-root",
-    default="/home/vgrwbx/data/datasets/test/raw",
+    default="~/workspace/OL_trajectoryprediction/data/test/raw",
     help="Path to local directory where the Argoverse 2 Sensor Dataset logs are stored.",
     type=click.Path(exists=True),
 )

@@ -21,6 +21,8 @@ from datasets import ArgoverseV2Dataset
 from predictors import QCNet
 from transforms import TargetBuilder
 
+import pandas as pd
+
 if __name__ == '__main__':
     pl.seed_everything(2023, workers=True)
 
@@ -34,7 +36,6 @@ if __name__ == '__main__':
     parser.add_argument('--accelerator', type=str, default='auto')
     parser.add_argument('--devices', type=int, default=1)
     parser.add_argument('--ckpt_path', type=str, required=True)
-    parser.add_argument('--metrics_savepath', type=str, default='val_metrics.csv')
     args = parser.parse_args()
 
     model = {
@@ -45,13 +46,23 @@ if __name__ == '__main__':
     }[model.dataset](root=args.root, split='val',
                      transform=TargetBuilder(model.num_historical_steps, model.num_future_steps))
     
-    #val_dataset = val_dataset[:10] 
+    # val_dataset = val_dataset[:10] 
     #print(len(val_dataset))
 
+    metrics_savepath='val_metrics.csv'
+
     # Check if the file exists
-    if os.path.exists(args.metrics_savepath):
+    if os.path.exists(metrics_savepath):
         # If it exists, delete it
-        os.remove(args.metrics_savepath)
+        os.remove(metrics_savepath)
+
+    # Manually create a header dataframe with the column names
+    header_df = pd.DataFrame({'scenario_id': ['scenario_id'], 'val_Brier': ['val_Brier'], 'val_minADE': ['val_minADE'], 'val_minAHE': ['val_minAHE'], 'val_minFDE': ['val_minFDE'], 'val_minFHE': ['val_minFHE'], 'val_minMR': ['val_minMR']})
+
+
+    # Append the header dataframe to the main dataframe
+    header_df.to_csv('test_metrics.csv', index=False, header=False)
+
 
     dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)

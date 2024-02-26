@@ -39,7 +39,7 @@ class ArgoverseV2DataModule(pl.LightningDataModule):
                  test_processed_dir: Optional[str] = None,
                  train_transform: Optional[Callable] = TargetBuilder(50, 60),
                  val_transform: Optional[Callable] = TargetBuilder(50, 60),
-                 test_transform: Optional[Callable] = None,
+                 test_transform: Optional[Callable] = TargetBuilder(50, 60),
                  **kwargs) -> None:
         super(ArgoverseV2DataModule, self).__init__()
         self.root = root

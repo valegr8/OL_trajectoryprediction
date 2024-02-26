@@ -19,7 +19,10 @@ from torch_geometric.loader import DataLoader
 from datasets import ArgoverseV2Dataset
 from predictors import QCNet
 
+from transforms import TargetBuilder
+
 import os
+import pandas as pd
 
 if __name__ == '__main__':
     pl.seed_everything(2023, workers=True)
@@ -27,7 +30,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--model', type=str, required=True)
     parser.add_argument('--root', type=str, required=True)
-    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--batch_size', type=int, default=12)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--pin_memory', type=bool, default=True)
     parser.add_argument('--persistent_workers', type=bool, default=True)
@@ -42,7 +45,7 @@ if __name__ == '__main__':
 
     test_dataset = {
         'argoverse_v2': ArgoverseV2Dataset,
-    }[model.dataset](root=args.root, split='test')
+    }[model.dataset](root=args.root, split='test',transform=TargetBuilder(model.num_historical_steps, model.num_future_steps))
 
     metrics_savepath='test_metrics.csv'
 
@@ -51,7 +54,15 @@ if __name__ == '__main__':
         # If it exists, delete it
         os.remove(metrics_savepath)
 
-    test_dataset = test_dataset[:10] 
+
+    # Manually create a header dataframe with the column names
+    header_df = pd.DataFrame({'scenario_id': ['scenario_id'], 'val_Brier': ['val_Brier'], 'val_minADE': ['val_minADE'], 'val_minAHE': ['val_minAHE'], 'val_minFDE': ['val_minFDE'], 'val_minFHE': ['val_minFHE'], 'val_minMR': ['val_minMR']})
+
+
+    # Append the header dataframe to the main dataframe
+    header_df.to_csv('test_metrics.csv', index=False, header=False)
+
+    # test_dataset = test_dataset[:10] 
     print("test dataset: ", len(test_dataset))
     dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)

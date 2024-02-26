@@ -37,9 +37,13 @@ if __name__ == '__main__':
     model = {
         'QCNet': QCNet,
     }[args.model].load_from_checkpoint(checkpoint_path=args.ckpt_path)
+
     test_dataset = {
         'argoverse_v2': ArgoverseV2Dataset,
     }[model.dataset](root=args.root, split='test')
+
+    
+
 
     test_dataset = test_dataset[:10] 
     print("test dataset: ", len(test_dataset))

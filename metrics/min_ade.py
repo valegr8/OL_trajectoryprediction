@@ -75,3 +75,4 @@ class minADE(Metric):
 
     def compute(self) -> torch.Tensor:
         return self.sum / self.count
+

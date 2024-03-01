@@ -62,9 +62,20 @@ if __name__ == '__main__':
     # Append the header dataframe to the main dataframe
     header_df.to_csv('test_metrics.csv', index=False, header=False)
 
-    # test_dataset = test_dataset[:10] 
+    test_dataset = test_dataset[:1] 
+    print('------------------------------------------------------------------------------------------------------------------')
+    print('test dataset:', test_dataset)
     print("test dataset: ", len(test_dataset))
     dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)
+    
+    el=next(iter(dataloader))
+    print(el)
+
+    print(el['agent']['position'] )
+    print('------------------------------------------------------------------------------------------------------------------')
+
+    print(el['agent']['target'] )
+
     trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp')
     trainer.test(model, dataloader)

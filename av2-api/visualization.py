@@ -1,10 +1,13 @@
-# <Copyright 2022, Argo AI, LLC. Released under the MIT license.>
+# Visualization Script, modification of av2 api
+# Valeria Grotto 20010126-6021 
+
+
 """Visualization utils for Argoverse MF scenarios."""
 
 import io
 import math
 from pathlib import Path
-from typing import Final, List, Optional, Sequence, Set, Tuple
+from typing import Final, List, Optional, Sequence, Set, Tuple, Dict
 
 import cv2
 import matplotlib.pyplot as plt
@@ -14,8 +17,14 @@ from PIL import Image as img
 from PIL.Image import Image
 
 from av2.datasets.motion_forecasting.data_schema import ArgoverseScenario, ObjectType, TrackCategory
+
+from av2.datasets.motion_forecasting.eval.submission import ChallengeSubmission
+
 from av2.map.map_api import ArgoverseStaticMap
 from av2.utils.typing import NDArrayFloat, NDArrayInt
+
+
+import matplotlib.colors as mcolors
 
 _PlotBounds = Tuple[float, float, float, float]
 
@@ -32,6 +41,7 @@ _PLOT_BOUNDS_BUFFER_M: Final[float] = 30.0
 _DRIVABLE_AREA_COLOR: Final[str] = "#7A7A7A"
 _LANE_SEGMENT_COLOR: Final[str] = "#E0E0E0"
 
+_PREDICTION_COLOR: Final[str] = "#ffffff"
 _DEFAULT_ACTOR_COLOR: Final[str] = "#D3E8EF"
 _FOCAL_AGENT_COLOR: Final[str] = "#ECA25B"
 _AV_COLOR: Final[str] = "#007672"
@@ -91,11 +101,84 @@ def visualize_scenario(scenario: ArgoverseScenario, scenario_static_map: Argover
     # Write buffered frames to MP4V-encoded video
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     vid_path = str(save_path.parents[0] / f"{save_path.stem}.mp4")
+
+    print('Saved in: ', vid_path)
     video = cv2.VideoWriter(vid_path, fourcc, fps=10, frameSize=frames[0].size)
     for i in range(len(frames)):
         frame_temp = frames[i].copy()
         video.write(cv2.cvtColor(np.array(frame_temp), cv2.COLOR_RGB2BGR))
     video.release()
+
+def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubmission,  scenario_static_map: ArgoverseStaticMap, save_path: Path, timestep: int = None) -> None:
+    """Build dynamic visualization for all tracks and the local map associated with an Argoverse scenario.
+
+    Note: This function uses OpenCV to create a MP4 file using the MP4V codec.
+
+    Args:
+        scenario: Argoverse scenario to visualize.
+        submission: Argoverse challenge submission format, it stores the predicted trajectories
+        scenario_static_map: Local static map elements associated with `scenario`.
+        save_path: Path where output MP4 video should be saved.
+    """
+    # submission_dict: Dict[str, ScenarioPredictions] = defaultdict(lambda: defaultdict(tuple))
+    # for prediction in submission_dict.items():
+    #     if(prediction['scenario_id']==scenario['scenario_id']):
+    #         print('Found scenario: ', scenario['scenario_id'])
+    #         break
+
+
+    #for outer_key, outer_value in submission.predictions.items():
+
+    outer_key = scenario.scenario_id
+    coordinates_array = [] 
+    probabilities_array = [] 
+    
+    outer_value = submission.predictions[scenario.scenario_id]    
+    if len(outer_value) == 0:
+        print(f'{scenario.scenario_id} does not exist in the submission file')
+    
+
+
+
+    fig, ax = plt.subplots()
+    if timestep == None: 
+        # TODO video
+        for timestep in range(_OBS_DURATION_TIMESTEPS + _PRED_DURATION_TIMESTEPS):
+            print(timestep)
+    else:
+        # Plot static map elements and actor tracks
+        _plot_static_map_elements(scenario_static_map)
+        _plot_actor_tracks(ax, scenario, timestep)
+
+        i = 0
+        #plot prediction
+        for inner_key, inner_value in outer_value.items():
+            i +=1
+            coordinates_array = inner_value[0]
+            probabilities_array = inner_value[1]
+
+            #plot prediction
+            _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
+            # print(f'scenario_id {outer_key}, track_id: {inner_key}')
+            # print(f'Coordinates Array: {coordinates_array}')
+            # print(f'Probabilities Array: {probabilities_array}')
+
+        plt.show()
+        # Save the figure
+        fig.savefig(str(save_path.parents[0] / f"{save_path.stem}.png"))
+        print('Figure saved: ', str(save_path.parents[0] / f"{save_path.stem}.png"))
+
+def __probability_to_color(probability):
+    # Create a colormap from yellow to red
+    cmap = mcolors.LinearSegmentedColormap.from_list("", ["yellow", "red"])
+    # Normalize the probability value between 0 and 1
+    normalized_probability = mcolors.Normalize(vmin=0, vmax=1)(probability)
+    # Get the color corresponding to the normalized probability
+    color = cmap(normalized_probability)
+    # Convert the RGBA color to a hexadecimal string
+    hex_color = mcolors.rgb2hex(color)
+    return hex_color
+
 
 
 def _plot_static_map_elements(static_map: ArgoverseStaticMap, show_ped_xings: bool = False) -> None:
@@ -161,7 +244,15 @@ def _plot_actor_tracks(ax: plt.Axes, scenario: ArgoverseScenario, timestep: int)
             y_min, y_max = actor_trajectory[:, 1].min(), actor_trajectory[:, 1].max()
             track_bounds = (x_min, x_max, y_min, y_max)
             track_color = _FOCAL_AGENT_COLOR
-            _plot_polylines([actor_trajectory], color=track_color, line_width=2)
+            # Get the current color
+            if timestep <= 50:
+                _plot_polylines([actor_trajectory], color=track_color, line_width=2)
+            else:
+                black = '#000000'
+                _plot_polylines([actor_trajectory[:51]], color=track_color, line_width=2)
+                _plot_polylines([actor_trajectory[50:]], color=black, line_width=2)
+
+
         elif track.track_id == "AV":
             track_color = _AV_COLOR
         elif track.object_type in _STATIC_OBJECT_TYPES:
@@ -197,6 +288,7 @@ def _plot_polylines(
     line_width: float = 1.0,
     alpha: float = 1.0,
     color: str = "r",
+    probabilities: Sequence[NDArrayFloat] = None,
 ) -> None:
     """Plot a group of polylines with the specified config.
 
@@ -207,7 +299,11 @@ def _plot_polylines(
         alpha: Desired alpha for the plotted lines.
         color: Desired color for the plotted lines.
     """
+    i = 0
     for polyline in polylines:
+        if probabilities is not None:
+            color = __probability_to_color(probabilities[i])  
+        i+=1
         plt.plot(polyline[:, 0], polyline[:, 1], style, linewidth=line_width, color=color, alpha=alpha)
 
 
@@ -244,6 +340,6 @@ def _plot_actor_bounding_box(
     pivot_y = cur_location[1] - (d / 2) * math.sin(heading + theta_2)
 
     vehicle_bounding_box = Rectangle(
-        (pivot_x, pivot_y), bbox_length, bbox_width, np.degrees(heading), color=color, zorder=_BOUNDING_BOX_ZORDER
+        (pivot_x, pivot_y), bbox_length, bbox_width, angle=np.degrees(heading), color=color, zorder=_BOUNDING_BOX_ZORDER
     )
     ax.add_patch(vehicle_bounding_box)

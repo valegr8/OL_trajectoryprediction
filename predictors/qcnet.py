@@ -186,10 +186,6 @@ class QCNet(pl.LightningModule):
         pi = pred['pi']
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
         
-        print('OUTPUT DIM: ', self.output_dim)
-
-        print('GT: ', gt)
-        
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
                               gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
@@ -217,6 +213,11 @@ class QCNet(pl.LightningModule):
     def validation_step(self,
                         data,
                         batch_idx):
+        
+        # Clear the memory used by the GPU
+        torch.cuda.empty_cache()
+
+
         if isinstance(data, Batch):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
 
@@ -247,11 +248,9 @@ class QCNet(pl.LightningModule):
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
 
-        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
-        
-        #print('OUTPUT DIM: ', self.output_dim)
+        # print('heading: last element od data(agent)(target): ',data['agent']['target'][..., -1:].shape)
 
-        print('GT shape: ', gt.shape)
+        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
         
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
                               gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
@@ -321,6 +320,32 @@ class QCNet(pl.LightningModule):
         # print('val_minFHE: ', min_fhe)
         # print('val_minMR: ', min_mr)
 
+        origin_eval = data['agent']['position'][eval_mask, self.num_historical_steps - 1]
+        theta_eval = data['agent']['heading'][eval_mask, self.num_historical_steps - 1]
+        cos, sin = theta_eval.cos(), theta_eval.sin()
+        rot_mat = torch.zeros(eval_mask.sum(), 2, 2, device=self.device)
+        rot_mat[:, 0, 0] = cos
+        rot_mat[:, 0, 1] = sin
+        rot_mat[:, 1, 0] = -sin
+        rot_mat[:, 1, 1] = cos
+        # print('NOT TO SUBMIT: ',traj_eval)
+        traj_eval = torch.matmul(traj_refine[eval_mask, :, :, :2], rot_mat.unsqueeze(1)) + origin_eval[:, :2].reshape(-1, 1, 1, 2)
+        # print('-----------------------------------------------------------------------------------------')
+        # print('TO SUBMIT: ',traj_eval)
+        # print('-----------------------------------------------------------------------------------------')
+        # print('mask: ', eval_mask)
+        # print('probabilities: ', pi_eval)
+        traj_eval= traj_eval.cpu().numpy()
+        if self.dataset == 'argoverse_v2':
+            eval_id = list(compress(list(chain(*data['agent']['id'])), eval_mask))
+            if isinstance(data, Batch):
+                for i in range(data.num_graphs):
+                    self.test_predictions[data['scenario_id'][i]] = {eval_id[i]: (traj_eval[i], pi_eval[i].cpu().numpy())}
+            else:
+                self.test_predictions[data['scenario_id'][i]] = {eval_id[0]: (traj_eval[0], pi_eval[0].cpu().numpy())}
+        else:
+            raise ValueError('{} is not a valid dataset'.format(self.dataset))
+
 
         
         self.log('val_Brier', self.Brier, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
@@ -329,6 +354,15 @@ class QCNet(pl.LightningModule):
         self.log('val_minFDE', self.minFDE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
         self.log('val_minFHE', self.minFHE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
         self.log('val_MR', self.MR, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
+
+
+    def on_validation_end(self):
+        if self.dataset == 'argoverse_v2':
+            save_path = Path(self.submission_dir) / f'{self.submission_file_name}_val.parquet'
+            ChallengeSubmission(self.test_predictions).to_parquet(save_path)
+            print('saved in: ', save_path)
+        else:
+            raise ValueError('{} is not a valid dataset'.format(self.dataset))
 
     def test_step(self,
                   data,
@@ -355,8 +389,10 @@ class QCNet(pl.LightningModule):
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
+        print(len(data['agent']['target'][..., :self.output_dim]))
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
-
+        print(len(gt))
+        print(self.num_historical_steps)
         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
 
 
@@ -374,6 +410,7 @@ class QCNet(pl.LightningModule):
         rot_mat[:, 1, 1] = cos
         traj_eval = torch.matmul(traj_refine[eval_mask, :, :, :2],
                                  rot_mat.unsqueeze(1)) + origin_eval[:, :2].reshape(-1, 1, 1, 2)
+        print(eval_mask)
         pi_eval = F.softmax(pi[eval_mask], dim=-1)
 
         valid_mask_eval = reg_mask[eval_mask]
@@ -389,6 +426,9 @@ class QCNet(pl.LightningModule):
 
         traj_eval = traj_eval.cpu().numpy()
         pi_eval = pi_eval.cpu().numpy()
+
+        print('PI: ', pi_eval)
+
         if self.dataset == 'argoverse_v2':
             eval_id = list(compress(list(chain(*data['agent']['id'])), eval_mask))
             if isinstance(data, Batch):

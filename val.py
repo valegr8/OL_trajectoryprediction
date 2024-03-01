@@ -22,6 +22,7 @@ from predictors import QCNet
 from transforms import TargetBuilder
 
 import pandas as pd
+import torch
 
 if __name__ == '__main__':
     pl.seed_everything(2023, workers=True)
@@ -61,10 +62,18 @@ if __name__ == '__main__':
 
 
     # Append the header dataframe to the main dataframe
-    header_df.to_csv('test_metrics.csv', index=False, header=False)
+    header_df.to_csv('val_metrics.csv', index=False, header=False)
+
+    # val_dataset = val_dataset[:10] 
+    # print('------------------------------------------------------------------------------------------------------------------')
+    # print('val dataset:', val_dataset)
+
+    # Clear the memory used by the GPU
+    torch.cuda.empty_cache()
 
 
     dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)
+    print(next(iter(dataloader)))
     trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp')
     trainer.validate(model, dataloader)

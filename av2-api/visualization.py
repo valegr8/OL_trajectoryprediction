@@ -109,7 +109,7 @@ def visualize_scenario(scenario: ArgoverseScenario, scenario_static_map: Argover
         video.write(cv2.cvtColor(np.array(frame_temp), cv2.COLOR_RGB2BGR))
     video.release()
 
-def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubmission,  scenario_static_map: ArgoverseStaticMap, save_path: Path, timestep: int = None) -> None:
+def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubmission,  scenario_static_map: ArgoverseStaticMap, save_path: Path, timestep: int = None):
     """Build dynamic visualization for all tracks and the local map associated with an Argoverse scenario.
 
     Note: This function uses OpenCV to create a MP4 file using the MP4V codec.
@@ -163,10 +163,15 @@ def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubm
             # print(f'Coordinates Array: {coordinates_array}')
             # print(f'Probabilities Array: {probabilities_array}')
 
-        plt.show()
+        # plt.show()
+        
         # Save the figure
-        fig.savefig(str(save_path.parents[0] / f"{save_path.stem}.png"))
-        print('Figure saved: ', str(save_path.parents[0] / f"{save_path.stem}.png"))
+        fig_path = str(save_path.parents[0] / f"{save_path.stem}.png")
+        fig.savefig(fig_path, dpi=300)
+        plt.close()  # Close the plot to free memory
+        print(fig_path)
+
+        return fig_path
 
 def __probability_to_color(probability):
     # Create a colormap from yellow to red

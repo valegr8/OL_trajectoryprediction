@@ -160,14 +160,29 @@ class QCNet(pl.LightningModule):
         scene_enc = self.encoder(data)
         pred = self.decoder(data, scene_enc)
         return pred
+    
+    def set_num_historical_steps(self, num_historical_steps):
+        self.num_historical_steps = num_historical_steps
+        self.encoder.agent_encoder.set_num_historical_steps(num_historical_steps)
+        self.encoder.map_encoder.set_num_historical_steps(num_historical_steps)
+        self.decoder.set_num_historical_steps(num_historical_steps)
+
+
 
     def training_step(self,
                       data,
-                      batch_idx):
+                      batch_idx,
+                      online_learning,
+                      ol_time_slice: int):
+        # print('TRAINING STEP: ', self.num_historical_steps)
+        torch.cuda.empty_cache()
         if isinstance(data, Batch):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
+
+        # the mask is needed only to calculate the loss of ceirtain elements, for stabilization, so that with the background thep we don update all weights
         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
         cls_mask = data['agent']['predict_mask'][:, -1]
+
         pred = self(data)
         if self.output_head:
             traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
@@ -184,31 +199,85 @@ class QCNet(pl.LightningModule):
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
-        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
+
+        if online_learning:
+            next_gt = self.num_historical_steps+ol_time_slice
+            gt = torch.cat((data['agent']['position'][:, self.num_historical_steps:next_gt].contiguous(),), dim=1)
+            # print('gt pos', gt.shape)
+
+            # gt_head_a = torch.cat((data['agent']['heading'][:, self.num_historical_steps:next_gt].contiguous(),), dim=1)
+            # print('gt pos', gt_head_a.shape)
+
+            # print('traj propose before shape', traj_propose.shape)
+            traj_propose = traj_propose[...,:ol_time_slice, :] 
+            # print('traj propose after shape', traj_propose.shape)
+            # print('traj refine shape', traj_refine.shape)
+            traj_refine = traj_refine[...,:ol_time_slice, :] 
+            # print('traj refine after', traj_refine.shape)
+            reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:next_gt]
+            # print('reg mask shape: ', reg_mask.shape)
+            # print('cls_mask_shape:', cls_mask.shape)
+
+        else:
+            gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
+
+        # print('gt shape: ', gt[..., :self.output_dim].shape)
+
+        if online_learning:
+            l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
+                                gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1)).sum(dim=-1)
+            
+            best_mode = l2_norm.argmin(dim=-1)
+            traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
+            traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
+            reg_loss_propose = self.reg_loss(traj_propose_best,
+                                            gt[..., :self.output_dim + self.output_head]).sum(dim=-1)
+            reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
+            reg_loss_propose = reg_loss_propose.mean()
+            reg_loss_refine = self.reg_loss(traj_refine_best,
+                                            gt[..., :self.output_dim + self.output_head]).sum(dim=-1)
+            reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
+            reg_loss_refine = reg_loss_refine.mean()
+            cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
+                                    target=gt[:, -1:, :self.output_dim + self.output_head],
+                                    prob=pi,
+                                    mask=reg_mask[:, -1:])
+        else:
+            # print(gt[..., :self.output_dim].unsqueeze(1).shape)
+            l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
+                                gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         
-        l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-                              gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
-        best_mode = l2_norm.argmin(dim=-1)
-        traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
-        traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
-        reg_loss_propose = self.reg_loss(traj_propose_best,
-                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
-        reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-        reg_loss_propose = reg_loss_propose.mean()
-        reg_loss_refine = self.reg_loss(traj_refine_best,
-                                        gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
-        reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-        reg_loss_refine = reg_loss_refine.mean()
-        cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
-                                 target=gt[:, -1:, :self.output_dim + self.output_head],
-                                 prob=pi,
-                                 mask=reg_mask[:, -1:]) * cls_mask
+            best_mode = l2_norm.argmin(dim=-1)
+            traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
+            traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
+            reg_loss_propose = self.reg_loss(traj_propose_best,
+                                            gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
+            reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
+            reg_loss_propose = reg_loss_propose.mean()
+            reg_loss_refine = self.reg_loss(traj_refine_best,
+                                            gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
+            reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
+            reg_loss_refine = reg_loss_refine.mean()
+            cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
+                                    target=gt[:, -1:, :self.output_dim + self.output_head],
+                                    prob=pi,
+                                    mask=reg_mask[:, -1:]) * cls_mask
         cls_loss = cls_loss.sum() / cls_mask.sum().clamp_(min=1)
         self.log('train_reg_loss_propose', reg_loss_propose, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
         self.log('train_reg_loss_refine', reg_loss_refine, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
         self.log('train_cls_loss', cls_loss, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
         loss = reg_loss_propose + reg_loss_refine + cls_loss
         return loss
+    
+    def online_learning_update(self, data, initial_hstorical_steps, final_his_step, batch_idx, ol_time_slice):
+         # Clear the memory used by the GPU
+        torch.cuda.empty_cache()
+        for i in range(initial_hstorical_steps, final_his_step,5):
+            self.set_num_historical_steps(i)
+            # print(i, '-',initial_hstorical_steps, '-', final_his_step,'-------------------------------------------------------------------')
+            self.training_step(data, batch_idx, online_learning = True, ol_time_slice=ol_time_slice)
+        self.set_num_historical_steps(final_his_step)
+        
 
     def validation_step(self,
                         data,
@@ -216,6 +285,11 @@ class QCNet(pl.LightningModule):
         
         # Clear the memory used by the GPU
         torch.cuda.empty_cache()
+
+        initial_hstorical_steps = 20
+        final_his_step = 50
+
+        self.online_learning_update(data, initial_hstorical_steps, final_his_step, batch_idx, ol_time_slice = 5)
 
 
         if isinstance(data, Batch):
@@ -251,7 +325,8 @@ class QCNet(pl.LightningModule):
         # print('heading: last element od data(agent)(target): ',data['agent']['target'][..., -1:].shape)
 
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
-        
+        # print(traj_propose[..., :self.output_dim].shape)
+        # print(gt[..., :self.output_dim].unsqueeze(1).shape)
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
                               gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
@@ -299,6 +374,9 @@ class QCNet(pl.LightningModule):
         min_fhe = self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
         min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
         
+
+        # Clear the memory used by the GPU
+        torch.cuda.empty_cache()
 
         # df_metrics['val_Brier'] = brier
         # df_metrics['val_minADE'] = min_ade
@@ -389,10 +467,10 @@ class QCNet(pl.LightningModule):
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
-        print(len(data['agent']['target'][..., :self.output_dim]))
+        # print(len(data['agent']['target'][..., :self.output_dim]))
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
-        print(len(gt))
-        print(self.num_historical_steps)
+        # print(len(gt))
+        # print(self.num_historical_steps)
         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
 
 

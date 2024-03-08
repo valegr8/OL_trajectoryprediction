@@ -171,3 +171,7 @@ class QCNetMapEncoder(nn.Module):
                                       dim=0).reshape(-1, self.num_historical_steps, self.hidden_dim)
 
         return {'x_pt': x_pt, 'x_pl': x_pl}
+
+    def set_num_historical_steps(self, num_historical_steps):
+        self.num_historical_steps = num_historical_steps
+        # print('MAP - update historical steps num: ', num_historical_steps)

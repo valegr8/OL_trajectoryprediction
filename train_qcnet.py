@@ -40,7 +40,7 @@ if __name__ == '__main__':
     parser.add_argument('--val_processed_dir', type=str, default=None)
     parser.add_argument('--test_processed_dir', type=str, default=None)
     parser.add_argument('--accelerator', type=str, default='auto')
-    parser.add_argument('--devices', type=int, required=True)
+    parser.add_argument('--devices', type=int, default=1)
     parser.add_argument('--max_epochs', type=int, default=64)
     QCNet.add_model_specific_args(parser)
     args = parser.parse_args()
@@ -49,8 +49,11 @@ if __name__ == '__main__':
     datamodule = {
         'argoverse_v2': ArgoverseV2DataModule,
     }[args.dataset](**vars(args))
+
     model_checkpoint = ModelCheckpoint(monitor='val_minFDE', save_top_k=5, mode='min')
+
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
+
     trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices,
                          strategy=DDPStrategy(find_unused_parameters=False, gradient_as_bucket_view=True),
                          callbacks=[model_checkpoint, lr_monitor], max_epochs=args.max_epochs)

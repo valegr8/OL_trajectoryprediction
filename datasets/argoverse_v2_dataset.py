@@ -84,7 +84,7 @@ class ArgoverseV2Dataset(Dataset):
         root = os.path.expanduser(os.path.normpath(root))
         if not os.path.isdir(root):
             os.makedirs(root)
-        if split not in ('train', 'val', 'test'):
+        if split not in ('train', 'val', 'test', 'olval'):
             raise ValueError(f'{split} is not a valid split')
         self.split = split
 
@@ -135,6 +135,7 @@ class ArgoverseV2Dataset(Dataset):
             'train': 199908,
             'val': 24988,
             'test': 24984,
+            'olval': 2578
         }[split]
         self._agent_types = ['vehicle', 'pedestrian', 'motorcyclist', 'cyclist', 'bus', 'static', 'background',
                              'construction', 'riderless_bicycle', 'unknown']

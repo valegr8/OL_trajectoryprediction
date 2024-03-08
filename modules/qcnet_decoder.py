@@ -75,6 +75,11 @@ class QCNetDecoder(nn.Module):
         input_dim_r_pl2m = 3
         input_dim_r_a2m = 3
 
+        print('[ENCODER] Historical steps', self.num_historical_steps  )
+        print('[ENCODER] input_dim', self.input_dim  )
+
+
+
         self.mode_emb = nn.Embedding(num_modes, hidden_dim)
         self.r_t2m_emb = FourierEmbedding(input_dim=input_dim_r_t, hidden_dim=hidden_dim, num_freq_bands=num_freq_bands)
         self.r_pl2m_emb = FourierEmbedding(input_dim=input_dim_r_pl2m, hidden_dim=hidden_dim,
@@ -141,6 +146,8 @@ class QCNetDecoder(nn.Module):
     def forward(self,
                 data: HeteroData,
                 scene_enc: Mapping[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        
+
         pos_m = data['agent']['position'][:, self.num_historical_steps - 1, :self.input_dim]
         head_m = data['agent']['heading'][:, self.num_historical_steps - 1]
         head_vector_m = torch.stack([head_m.cos(), head_m.sin()], dim=-1)
@@ -288,3 +295,8 @@ class QCNetDecoder(nn.Module):
             'conc_refine_head': conc_refine_head,
             'pi': pi,
         }
+    
+
+    def set_num_historical_steps(self, num_historical_steps):
+        self.num_historical_steps = num_historical_steps
+        # print('DECODER: update historical steps num: ', num_historical_steps)

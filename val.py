@@ -30,7 +30,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--model', type=str, required=True)
     parser.add_argument('--root', type=str, required=True)
-    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--pin_memory', type=bool, default=True)
     parser.add_argument('--persistent_workers', type=bool, default=True)
@@ -42,13 +42,29 @@ if __name__ == '__main__':
     model = {
         'QCNet': QCNet,
     }[args.model].load_from_checkpoint(checkpoint_path=args.ckpt_path)
+
+    print('model his steps:', model.num_historical_steps)
+
     val_dataset = {
         'argoverse_v2': ArgoverseV2Dataset,
-    }[model.dataset](root=args.root, split='val',
+    }[model.dataset](root=args.root, split='olval',
                      transform=TargetBuilder(model.num_historical_steps, model.num_future_steps))
-    
-    # val_dataset = val_dataset[:10] 
-    #print(len(val_dataset))
+
+
+    print('LEN DATASET: ', len(val_dataset))
+
+    print('MODEL PARAMS: ', sum(p.numel() for p in model.parameters()))
+
+    # model size
+    param_size = 0
+    for param in model.parameters():
+        param_size += param.nelement() * param.element_size()
+    buffer_size = 0
+    for buffer in model.buffers():
+        buffer_size += buffer.nelement() * buffer.element_size()
+
+    size_all_mb = (param_size + buffer_size) / 1024**2
+    print('model size: {:.3f}MB'.format(size_all_mb))
 
     metrics_savepath='val_metrics.csv'
 
@@ -64,7 +80,7 @@ if __name__ == '__main__':
     # Append the header dataframe to the main dataframe
     header_df.to_csv('val_metrics.csv', index=False, header=False)
 
-    # val_dataset = val_dataset[:10] 
+    # val_dataset = val_dataset[:1] 
     # print('------------------------------------------------------------------------------------------------------------------')
     # print('val dataset:', val_dataset)
 
@@ -74,6 +90,6 @@ if __name__ == '__main__':
 
     dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)
-    print(next(iter(dataloader)))
+    # print(next(iter(dataloader)))
     trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp')
     trainer.validate(model, dataloader)

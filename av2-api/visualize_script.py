@@ -12,54 +12,17 @@ from av2.utils.typing import NDArrayFloat
 from argparse import ArgumentParser
 import visualization #custom visualization api
 from av2.datasets.motion_forecasting import scenario_serialization
+from av2.datasets.motion_forecasting.eval.submission import ChallengeSubmission
 
-try:
-    from av2.datasets.motion_forecasting.eval.submission import ChallengeSubmission
-except ImportError:
-    ChallengeSubmission = object
-
-from av2.datasets.motion_forecasting.data_schema import TrackCategory
+from av2.datasets.motion_forecasting.data_schema import TrackCategory, ArgoverseScenario
 from av2.datasets.motion_forecasting.eval import metrics
 
-
-if __name__ == '__main__':
-
-    parser = ArgumentParser()
-    # static_map_path: Path to the JSON file containing map data. The file name must match
-    # the following pattern: "log_map_archive_{log_id}.json".
-    # path to where the logs live
-    parser.add_argument('--dataroot', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/data/val/raw")
-    parser.add_argument('--log_id', type=str, default="aa95458f-d095-4cee-b774-f075c3f1d2c2") # unique log identifier
-    parser.add_argument('--submission_file_path', type=str, default="~/workspace/OL_trajectoryprediction/metrics_files/submission_val.parquet") # path of the submission
-    parser.add_argument('--save_path', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/videos/test") # path where to save the visualization
-    parser.add_argument('--timestep', type=int, default=30) # timestep
-    args = parser.parse_args()
-
-    log_map_dirpath = Path(args.dataroot) / args.log_id 
-    
-    # load map
-    scenario_static_map = ArgoverseStaticMap.from_map_dir(log_map_dirpath, build_raster=False)
-
-    # load scenario
-    # scenario = pd.read_parquet(os.path.join(log_map_dirpath, f'scenario_{args.log_id}.parquet'))
-    scenario = scenario_serialization.load_argoverse_scenario_parquet(
-        os.path.join(log_map_dirpath, f'scenario_{args.log_id}.parquet')
-    )
-
-    # load challenge submission predictions, note that they might be on a different dataset!
-    submission = ChallengeSubmission.from_parquet(Path(args.submission_file_path))
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
 
 
-    # print(submission)
-
-    #visualization.visualize_scenario(scenario, scenario_static_map, Path(args.save_path))
-
-
-    visualization.visualize_predictions(scenario,submission, scenario_static_map, Path(args.save_path), timestep=109)
-
-
-
-    #compute metrics
+#compute metrics
+def compute_metrics(scenario:ArgoverseScenario, submission:ChallengeSubmission):
     # # for each element in the submission file get predicted trajectories and gt
     outer_key = scenario.scenario_id
     coordinates_array = [] 
@@ -102,3 +65,73 @@ if __name__ == '__main__':
         # print(f'scenario_id {outer_key}, track_id: {inner_key}')
         # print(f'Coordinates Array: {coordinates_array}')
         # print(f'Probabilities Array: {probabilities_array}')
+
+if __name__ == '__main__':
+
+    parser = ArgumentParser()
+    # static_map_path: Path to the JSON file containing map data. The file name must match
+    # the following pattern: "log_map_archive_{log_id}.json".
+    # path to where the logs live
+    parser.add_argument('--dataroot', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/data/val/raw")
+    parser.add_argument('--log_id', type=str, default="7103fee0-bd5e-4fa3-a8e0-f9753ca1ecf7") # unique log identifier
+    parser.add_argument('--submission_file_path', type=str, default="~/workspace/OL_trajectoryprediction/metrics_files/submission_val.parquet") # path of the submission
+    parser.add_argument('--save_path', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/videos/") # path where to save the visualization
+    parser.add_argument('--ol_path', type=str, default='/home/vgrwbx//workspace/OL_trajectoryprediction/submission_val.parquet') 
+    parser.add_argument('--timestep', type=int, default=30) # timestep
+    args = parser.parse_args()
+
+    OL = False
+
+    if os.path.exists(args.ol_path):
+        OL = True
+    else:
+        print("OL file path does not exist.", args.ol_path)
+
+    log_map_dirpath = Path(args.dataroot) / args.log_id 
+    
+    # load map
+    scenario_static_map = ArgoverseStaticMap.from_map_dir(log_map_dirpath, build_raster=False)
+
+    # load scenario
+    # scenario = pd.read_parquet(os.path.join(log_map_dirpath, f'scenario_{args.log_id}.parquet'))
+    scenario = scenario_serialization.load_argoverse_scenario_parquet(
+        os.path.join(log_map_dirpath, f'scenario_{args.log_id}.parquet')
+    )
+    
+
+    # load challenge submission predictions, note that they might be on a different dataset!
+    submission = ChallengeSubmission.from_parquet(Path(args.submission_file_path))
+    fig1 = visualization.visualize_predictions(scenario,submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')), timestep=109)
+
+
+    
+    compute_metrics(scenario, submission)
+
+    # Read saved images
+    image1 = mpimg.imread(fig1)
+
+    # Display 
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.imshow(image1)
+    plt.axis('off')
+    plt.title('No OL')
+
+    if OL:
+        print('\n\n----------------OL--------------------------------')
+        # visualize ol submission
+        ol_submission = ChallengeSubmission.from_parquet(Path(args.ol_path))
+        fig2 = visualization.visualize_predictions(scenario,ol_submission, scenario_static_map, Path(os.path.join(args.save_path, 'ol')), timestep=109)
+
+
+        compute_metrics(scenario, ol_submission)
+
+        
+        image2 = mpimg.imread(fig2)
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(image2)
+        plt.axis('off')
+        plt.title('OL')
+
+    plt.show()

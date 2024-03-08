@@ -49,6 +49,9 @@ class QCNetAgentEncoder(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.num_historical_steps = num_historical_steps
+
+        print('(AGENT ENCODER) Time span: ', time_span)
+
         self.time_span = time_span if time_span is not None else num_historical_steps
         self.pl2a_radius = pl2a_radius
         self.a2a_radius = a2a_radius
@@ -186,3 +189,7 @@ class QCNetAgentEncoder(nn.Module):
             x_a = x_a.reshape(self.num_historical_steps, -1, self.hidden_dim).transpose(0, 1)
 
         return {'x_a': x_a}
+
+    def set_num_historical_steps(self, num_historical_steps):
+        self.num_historical_steps = num_historical_steps
+        # print('AGenT ENCODER - update historical steps num: ', num_historical_steps)

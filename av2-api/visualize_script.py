@@ -101,6 +101,7 @@ if __name__ == '__main__':
 
     # load challenge submission predictions, note that they might be on a different dataset!
     submission = ChallengeSubmission.from_parquet(Path(args.submission_file_path))
+    
     fig1 = visualization.visualize_predictions(scenario,submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')), timestep=109)
 
 

@@ -47,7 +47,7 @@ if __name__ == '__main__':
 
     val_dataset = {
         'argoverse_v2': ArgoverseV2Dataset,
-    }[model.dataset](root=args.root, split='olval',
+    }[model.dataset](root=args.root, split='val',
                      transform=TargetBuilder(model.num_historical_steps, model.num_future_steps))
 
 

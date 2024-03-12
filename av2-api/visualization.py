@@ -157,6 +157,9 @@ def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubm
             coordinates_array = inner_value[0]
             probabilities_array = inner_value[1]
 
+            print(coordinates_array)
+            print(probabilities_array)
+
             #plot prediction
             _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
             # print(f'scenario_id {outer_key}, track_id: {inner_key}')
@@ -254,6 +257,7 @@ def _plot_actor_tracks(ax: plt.Axes, scenario: ArgoverseScenario, timestep: int)
                 _plot_polylines([actor_trajectory], color=track_color, line_width=2)
             else:
                 black = '#000000'
+                print('GT:',actor_trajectory[:51])
                 _plot_polylines([actor_trajectory[:51]], color=track_color, line_width=2)
                 _plot_polylines([actor_trajectory[50:]], color=black, line_width=2)
 

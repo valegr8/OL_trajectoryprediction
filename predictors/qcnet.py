@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 import pytorch_lightning as pl
+from pytorch_lightning.core.hooks import ModelHooks
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -35,6 +36,8 @@ from modules import QCNetDecoder
 from modules import QCNetEncoder
 
 import pandas as pd
+
+import torch.optim as optim
 
 try:
     from av2.datasets.motion_forecasting.eval.submission import ChallengeSubmission
@@ -155,6 +158,10 @@ class QCNet(pl.LightningModule):
 
         self.test_predictions = dict()
 
+        print('learning rate: ', self.lr)
+        params = list(self.decoder.parameters()) + list(self.encoder.parameters())
+        self.optimizer = torch.optim.AdamW(params, lr=0.1, weight_decay=self.weight_decay)
+
     def forward(self, data: HeteroData):
        # print(data)
         scene_enc = self.encoder(data)
@@ -266,23 +273,49 @@ class QCNet(pl.LightningModule):
         self.log('train_reg_loss_propose', reg_loss_propose, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
         self.log('train_reg_loss_refine', reg_loss_refine, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
         self.log('train_cls_loss', cls_loss, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
+
+        # Set requires_grad to True
+        reg_loss_propose.requires_grad_()
+        reg_loss_refine.requires_grad_()
+        cls_loss.requires_grad_()
+
+
         loss = reg_loss_propose + reg_loss_refine + cls_loss
+
+        loss.requires_grad_()
         return loss
-    
+
+
     def online_learning_update(self, data, initial_hstorical_steps, final_his_step, batch_idx, ol_time_slice):
          # Clear the memory used by the GPU
         torch.cuda.empty_cache()
-        for i in range(initial_hstorical_steps, final_his_step,5):
+
+        # enable grads
+        torch.set_grad_enabled(True)
+        for i in range(initial_hstorical_steps, final_his_step,50):
             self.set_num_historical_steps(i)
             # print(i, '-',initial_hstorical_steps, '-', final_his_step,'-------------------------------------------------------------------')
-            self.training_step(data, batch_idx, online_learning = True, ol_time_slice=ol_time_slice)
+            loss = self.training_step(data, batch_idx, online_learning = True, ol_time_slice=ol_time_slice)
+
+            # print('loss:', loss)
+
+            # clear gradients
+            self.optimizer.zero_grad()
+
+            # Compute gradients
+            loss.backward()
+
+            # Update model parameters
+            self.optimizer.step()
+
+            # Zero the gradients
+            self.optimizer.zero_grad()
         self.set_num_historical_steps(final_his_step)
         
 
     def validation_step(self,
                         data,
                         batch_idx):
-        
         # Clear the memory used by the GPU
         torch.cuda.empty_cache()
 

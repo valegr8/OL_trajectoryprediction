@@ -136,15 +136,68 @@ def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubm
     outer_value = submission.predictions[scenario.scenario_id]    
     if len(outer_value) == 0:
         print(f'{scenario.scenario_id} does not exist in the submission file')
-    
-
-
 
     fig, ax = plt.subplots()
     if timestep == None: 
-        # TODO video
+        # video
+        # Build each frame for the video
+        frames: List[Image] = []
+        plot_bounds: _PlotBounds = (0, 0, 0, 0)
+
         for timestep in range(_OBS_DURATION_TIMESTEPS + _PRED_DURATION_TIMESTEPS):
-            print(timestep)
+            _, ax = plt.subplots()
+
+            # Plot static map elements and actor tracks
+            _plot_static_map_elements(scenario_static_map)
+            cur_plot_bounds = _plot_actor_tracks(ax, scenario, timestep)
+            if cur_plot_bounds:
+                plot_bounds = cur_plot_bounds
+
+            i = 0
+            #plot prediction
+            for inner_key, inner_value in outer_value.items():
+                i +=1
+                coordinates_array = inner_value[0]
+                probabilities_array = inner_value[1]
+
+                # print(coordinates_array)
+                # print(probabilities_array)
+
+                #plot prediction
+                _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
+
+            # Set map bounds to capture focal trajectory history (with fixed buffer in all directions)
+            plt.xlim(plot_bounds[0] - _PLOT_BOUNDS_BUFFER_M, plot_bounds[1] + _PLOT_BOUNDS_BUFFER_M)
+            plt.ylim(plot_bounds[2] - _PLOT_BOUNDS_BUFFER_M, plot_bounds[3] + _PLOT_BOUNDS_BUFFER_M)
+            plt.gca().set_aspect("equal", adjustable="box")
+
+            # Minimize plot margins and make axes invisible
+            plt.gca().set_axis_off()
+            plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+            plt.margins(0, 0)
+            plt.gca().xaxis.set_major_locator(plt.NullLocator())
+            plt.gca().yaxis.set_major_locator(plt.NullLocator())
+
+            # Save plotted frame to in-memory buffer
+            buf = io.BytesIO()
+            plt.savefig(buf, format="png")
+
+            plt.close()
+            buf.seek(0)
+            frame = img.open(buf)
+            frames.append(frame)
+            
+        # Write buffered frames to MP4V-encoded video
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        vid_path = str(save_path.parents[0] / f"{save_path.stem}.mp4")
+
+        print('Saved in: ', vid_path)
+        video = cv2.VideoWriter(vid_path, fourcc, fps=10, frameSize=frames[0].size)
+        for i in range(len(frames)):
+            frame_temp = frames[i].copy()
+            video.write(cv2.cvtColor(np.array(frame_temp), cv2.COLOR_RGB2BGR))
+        video.release()
+        
     else:
         # Plot static map elements and actor tracks
         _plot_static_map_elements(scenario_static_map)
@@ -157,8 +210,8 @@ def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubm
             coordinates_array = inner_value[0]
             probabilities_array = inner_value[1]
 
-            print(coordinates_array)
-            print(probabilities_array)
+            # print(coordinates_array)
+            # print(probabilities_array)
 
             #plot prediction
             _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
@@ -257,7 +310,7 @@ def _plot_actor_tracks(ax: plt.Axes, scenario: ArgoverseScenario, timestep: int)
                 _plot_polylines([actor_trajectory], color=track_color, line_width=2)
             else:
                 black = '#000000'
-                print('GT:',actor_trajectory[:51])
+                # print('GT:',actor_trajectory[:51])
                 _plot_polylines([actor_trajectory[:51]], color=track_color, line_width=2)
                 _plot_polylines([actor_trajectory[50:]], color=black, line_width=2)
 

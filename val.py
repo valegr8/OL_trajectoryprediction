@@ -20,6 +20,7 @@ import os
 from datasets import ArgoverseV2Dataset
 from predictors import QCNet
 from transforms import TargetBuilder
+from pytorch_lightning.loggers import TensorBoardLogger
 
 import pandas as pd
 import torch
@@ -39,6 +40,9 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt_path', type=str, required=True)
     args = parser.parse_args()
 
+    # Create a TensorBoardLogger instance
+    logger = TensorBoardLogger("lightning_logs", name="my_experiment")
+
     model = {
         'QCNet': QCNet,
     }[args.model].load_from_checkpoint(checkpoint_path=args.ckpt_path)
@@ -47,7 +51,7 @@ if __name__ == '__main__':
 
     val_dataset = {
         'argoverse_v2': ArgoverseV2Dataset,
-    }[model.dataset](root=args.root, split='val',
+    }[model.dataset](root=args.root, split='olval',
                      transform=TargetBuilder(model.num_historical_steps, model.num_future_steps))
 
 
@@ -91,5 +95,5 @@ if __name__ == '__main__':
     dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)
     # print(next(iter(dataloader)))
-    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp')
+    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp', logger=logger)
     trainer.validate(model, dataloader)

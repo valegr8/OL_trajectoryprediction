@@ -74,10 +74,11 @@ if __name__ == '__main__':
     # path to where the logs live
     parser.add_argument('--dataroot', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/data/val/raw")
     parser.add_argument('--log_id', type=str, default="7103fee0-bd5e-4fa3-a8e0-f9753ca1ecf7") # unique log identifier
+    parser.add_argument('--video', type=bool, default=False)
     parser.add_argument('--submission_file_path', type=str, default="~/workspace/OL_trajectoryprediction/metrics_files/submission_val.parquet") # path of the submission
     parser.add_argument('--save_path', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/videos/") # path where to save the visualization
     parser.add_argument('--ol_path', type=str, default='/home/vgrwbx//workspace/OL_trajectoryprediction/submission_val.parquet') 
-    parser.add_argument('--timestep', type=int, default=30) # timestep
+    parser.add_argument('--timestep', type=int, default=109) # timestep
     args = parser.parse_args()
 
     OL = False
@@ -101,38 +102,39 @@ if __name__ == '__main__':
 
     # load challenge submission predictions, note that they might be on a different dataset!
     submission = ChallengeSubmission.from_parquet(Path(args.submission_file_path))
-    
-    fig1 = visualization.visualize_predictions(scenario,submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')), timestep=109)
-
-
-    
     compute_metrics(scenario, submission)
+    
+    if args.video:
+        fig1 = visualization.visualize_predictions(scenario,submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')))
+    else:
+        fig1 = visualization.visualize_predictions(scenario,submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')), args.timestep)
 
-    # Read saved images
-    image1 = mpimg.imread(fig1)
+        # Read saved images
+        image1 = mpimg.imread(fig1)
 
-    # Display 
-    plt.figure(figsize=(10, 5))
-    plt.subplot(1, 2, 1)
-    plt.imshow(image1)
-    plt.axis('off')
-    plt.title('No OL')
+        # Display 
+        plt.figure(figsize=(10, 5))
+        plt.subplot(1, 2, 1)
+        plt.imshow(image1)
+        plt.axis('off')
+        plt.title('No OL')
 
     if OL:
         print('\n\n----------------OL--------------------------------')
         # visualize ol submission
         ol_submission = ChallengeSubmission.from_parquet(Path(args.ol_path))
-        fig2 = visualization.visualize_predictions(scenario,ol_submission, scenario_static_map, Path(os.path.join(args.save_path, 'ol')), timestep=109)
-
-
         compute_metrics(scenario, ol_submission)
+        if args.video:
+            fig2 = visualization.visualize_predictions(scenario,ol_submission, scenario_static_map, Path(os.path.join(args.save_path, 'ol')))
+        else:
+            fig2 = visualization.visualize_predictions(scenario,ol_submission, scenario_static_map, Path(os.path.join(args.save_path, 'ol')), args.timestep)
 
-        
-        image2 = mpimg.imread(fig2)
+            image2 = mpimg.imread(fig2)
 
-        plt.subplot(1, 2, 2)
-        plt.imshow(image2)
-        plt.axis('off')
-        plt.title('OL')
+            plt.subplot(1, 2, 2)
+            plt.imshow(image2)
+            plt.axis('off')
+            plt.title('OL')
 
-    plt.show()
+    if not args.video: 
+        plt.show()

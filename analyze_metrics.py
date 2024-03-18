@@ -82,13 +82,13 @@ def analyze_csv(filename):
 
 
 
-above_threshold_df = analyze_csv("metrics_files/val_metrics.csv")
+above_threshold_df = analyze_csv("val_metrics.csv")
 
 
 
 
 # Save the resulting DataFrame to a CSV file
-above_threshold_df.to_csv("metrics_files/above_threshold_samples.csv", index=False)
+# above_threshold_df.to_csv("metrics_files/above_threshold_samples.csv", index=False)
 
 analyze_csv("metrics_files/above_threshold_samples.csv")
 

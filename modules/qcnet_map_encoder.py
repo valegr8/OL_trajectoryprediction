@@ -39,7 +39,8 @@ class QCNetMapEncoder(nn.Module):
                  num_layers: int,
                  num_heads: int,
                  head_dim: int,
-                 dropout: float) -> None:
+                 dropout: float,
+                 initial_his_step:int = 0) -> None:
         super(QCNetMapEncoder, self).__init__()
         self.dataset = dataset
         self.input_dim = input_dim
@@ -51,6 +52,7 @@ class QCNetMapEncoder(nn.Module):
         self.num_heads = num_heads
         self.head_dim = head_dim
         self.dropout = dropout
+        self.initial_his_step = initial_his_step
 
         if dataset == 'argoverse_v2':
             if input_dim == 2:
@@ -167,11 +169,15 @@ class QCNetMapEncoder(nn.Module):
         for i in range(self.num_layers):
             x_pl = self.pt2pl_layers[i]((x_pt, x_pl), r_pt2pl, edge_index_pt2pl)
             x_pl = self.pl2pl_layers[i](x_pl, r_pl2pl, edge_index_pl2pl)
-        x_pl = x_pl.repeat_interleave(repeats=self.num_historical_steps,
-                                      dim=0).reshape(-1, self.num_historical_steps, self.hidden_dim)
+
+        tot_his_step = self.num_historical_steps - self.initial_his_step
+        x_pl = x_pl.repeat_interleave(repeats=tot_his_step,
+                                      dim=0).reshape(-1, tot_his_step, self.hidden_dim)
 
         return {'x_pt': x_pt, 'x_pl': x_pl}
 
     def set_num_historical_steps(self, num_historical_steps):
         self.num_historical_steps = num_historical_steps
-        # print('MAP - update historical steps num: ', num_historical_steps)
+
+    def set_initial_historical_steps(self, initial_his_step):
+        self.initial_his_step = initial_his_step

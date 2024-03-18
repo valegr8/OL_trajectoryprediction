@@ -77,5 +77,5 @@ if __name__ == '__main__':
 
     print(el['agent']['target'] )
 
-    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp')
+    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp', enable_checkpointing=False)
     trainer.test(model, dataloader)

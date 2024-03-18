@@ -51,7 +51,8 @@ class QCNetDecoder(nn.Module):
                  num_layers: int,
                  num_heads: int,
                  head_dim: int,
-                 dropout: float) -> None:
+                 dropout: float,
+                 initial_his_step:int = 0) -> None:
         super(QCNetDecoder, self).__init__()
         self.dataset = dataset
         self.input_dim = input_dim
@@ -70,15 +71,11 @@ class QCNetDecoder(nn.Module):
         self.num_heads = num_heads
         self.head_dim = head_dim
         self.dropout = dropout
+        self.initial_his_step = initial_his_step
 
         input_dim_r_t = 4
         input_dim_r_pl2m = 3
         input_dim_r_a2m = 3
-
-        print('[ENCODER] Historical steps', self.num_historical_steps  )
-        print('[ENCODER] input_dim', self.input_dim  )
-
-
 
         self.mode_emb = nn.Embedding(num_modes, hidden_dim)
         self.r_t2m_emb = FourierEmbedding(input_dim=input_dim_r_t, hidden_dim=hidden_dim, num_freq_bands=num_freq_bands)
@@ -146,23 +143,23 @@ class QCNetDecoder(nn.Module):
     def forward(self,
                 data: HeteroData,
                 scene_enc: Mapping[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        
+        tot_his_step = self.num_historical_steps - self.initial_his_step
 
         pos_m = data['agent']['position'][:, self.num_historical_steps - 1, :self.input_dim]
         head_m = data['agent']['heading'][:, self.num_historical_steps - 1]
         head_vector_m = torch.stack([head_m.cos(), head_m.sin()], dim=-1)
 
         x_t = scene_enc['x_a'].reshape(-1, self.hidden_dim)
-        x_pl = scene_enc['x_pl'][:, self.num_historical_steps - 1].repeat(self.num_modes, 1)
+        x_pl = scene_enc['x_pl'][:, tot_his_step - 1].repeat(self.num_modes, 1)
         x_a = scene_enc['x_a'][:, -1].repeat(self.num_modes, 1)
         m = self.mode_emb.weight.repeat(scene_enc['x_a'].size(0), 1)
 
-        mask_src = data['agent']['valid_mask'][:, :self.num_historical_steps].contiguous()
-        mask_src[:, :self.num_historical_steps - self.num_t2m_steps] = False
+        mask_src = data['agent']['valid_mask'][:, self.initial_his_step:self.num_historical_steps].contiguous()
+        mask_src[:, self.initial_his_step:self.num_historical_steps - self.num_t2m_steps] = False
         mask_dst = data['agent']['predict_mask'].any(dim=-1, keepdim=True).repeat(1, self.num_modes)
 
-        pos_t = data['agent']['position'][:, :self.num_historical_steps, :self.input_dim].reshape(-1, self.input_dim)
-        head_t = data['agent']['heading'][:, :self.num_historical_steps].reshape(-1)
+        pos_t = data['agent']['position'][:, self.initial_his_step:self.num_historical_steps, :self.input_dim].reshape(-1, self.input_dim)
+        head_t = data['agent']['heading'][:, self.initial_his_step:self.num_historical_steps].reshape(-1)
         edge_index_t2m = bipartite_dense_to_sparse(mask_src.unsqueeze(2) & mask_dst[:, -1:].unsqueeze(1))
         rel_pos_t2m = pos_t[edge_index_t2m[0]] - pos_m[edge_index_t2m[1]]
         rel_head_t2m = wrap_angle(head_t[edge_index_t2m[0]] - head_m[edge_index_t2m[1]])
@@ -170,7 +167,7 @@ class QCNetDecoder(nn.Module):
             [torch.norm(rel_pos_t2m[:, :2], p=2, dim=-1),
              angle_between_2d_vectors(ctr_vector=head_vector_m[edge_index_t2m[1]], nbr_vector=rel_pos_t2m[:, :2]),
              rel_head_t2m,
-             (edge_index_t2m[0] % self.num_historical_steps) - self.num_historical_steps + 1], dim=-1)
+             (edge_index_t2m[0] % tot_his_step) - self.num_historical_steps + 1], dim=-1)
         r_t2m = self.r_t2m_emb(continuous_inputs=r_t2m, categorical_embs=None)
         edge_index_t2m = bipartite_dense_to_sparse(mask_src.unsqueeze(2) & mask_dst.unsqueeze(1))
         r_t2m = r_t2m.repeat_interleave(repeats=self.num_modes, dim=0)
@@ -299,4 +296,6 @@ class QCNetDecoder(nn.Module):
 
     def set_num_historical_steps(self, num_historical_steps):
         self.num_historical_steps = num_historical_steps
-        # print('DECODER: update historical steps num: ', num_historical_steps)
+
+    def set_initial_historical_steps(self, initial_his_step):
+        self.initial_his_step = initial_his_step

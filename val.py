@@ -52,7 +52,7 @@ if __name__ == '__main__':
     val_dataset = {
         'argoverse_v2': ArgoverseV2Dataset,
     }[model.dataset](root=args.root, split='olval',
-                     transform=TargetBuilder(model.num_historical_steps, model.num_future_steps))
+                     transform=TargetBuilder(model.num_historical_steps, model.num_future_steps, online_learning = True))
 
 
     print('LEN DATASET: ', len(val_dataset))
@@ -85,8 +85,6 @@ if __name__ == '__main__':
     header_df.to_csv('val_metrics.csv', index=False, header=False)
 
     # val_dataset = val_dataset[:1] 
-    # print('------------------------------------------------------------------------------------------------------------------')
-    # print('val dataset:', val_dataset)
 
     # Clear the memory used by the GPU
     torch.cuda.empty_cache()
@@ -95,5 +93,5 @@ if __name__ == '__main__':
     dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)
     # print(next(iter(dataloader)))
-    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp', logger=logger)
+    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp', logger=logger, enable_checkpointing=False)
     trainer.validate(model, dataloader)

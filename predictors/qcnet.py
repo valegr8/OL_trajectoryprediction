@@ -87,6 +87,7 @@ class QCNet(pl.LightningModule):
         self.output_head = output_head
         self.num_historical_steps = num_historical_steps
         self.num_future_steps = num_future_steps
+        print('NUM FUTURE STEPS: ', self.num_future_steps)
         self.num_modes = num_modes
         self.num_recurrent_steps = num_recurrent_steps
         self.num_freq_bands = num_freq_bands
@@ -170,6 +171,25 @@ class QCNet(pl.LightningModule):
         self.save_loss_refine = []
         self.save_loss_propose = []
 
+        # Get original weights for decoder modules
+        self.original_weights = {}
+        for module_name, module in self.named_modules():
+            if 'decoder' in module_name:
+                self.original_weights[module_name] = module.state_dict()
+
+
+        # Create an empty DataFrame
+        self.df_metrics = pd.DataFrame(columns=['scenario_id','val_Brier','val_minADE','val_minAHE', 'val_minFDE','val_minFHE','val_minMR'])
+
+        self.online_learning = True
+        self.initial_hstorical_steps = 20
+        self.ol_time_slice = 20
+        self.final_his_step = 110
+        self.dataset_future_steps = 60
+        self.dataset_his_steps = 50
+        self.ol_version = 0
+
+
     def optimizer_MLP(self):
         decay = set()
         no_decay = set()
@@ -226,361 +246,59 @@ class QCNet(pl.LightningModule):
         self.encoder.map_encoder.set_num_historical_steps(num_historical_steps)
         self.decoder.set_num_historical_steps(num_historical_steps)
 
-
-
-    # def training_step(self,
-    #                   data,
-    #                   batch_idx,
-    #                   online_learning,
-    #                   ol_time_slice: int):
-    #     # print('TRAINING STEP: ', self.num_historical_steps)
-    #     torch.cuda.empty_cache()
-    #     if isinstance(data, Batch):
-    #         data['agent']['av_index'] += data['agent']['ptr'][:-1]
-
-    #     # the mask is needed only to calculate the loss of ceirtain elements, for stabilization, so that with the background thep we don update all weights
-    #     reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
-    #     cls_mask = data['agent']['predict_mask'][:, -1]
-
-    #     pred = self(data)
-    #     if self.output_head:
-    #         traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
-    #                                   pred['loc_propose_head'],
-    #                                   pred['scale_propose_pos'][..., :self.output_dim],
-    #                                   pred['conc_propose_head']], dim=-1)
-    #         traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
-    #                                  pred['loc_refine_head'],
-    #                                  pred['scale_refine_pos'][..., :self.output_dim],
-    #                                  pred['conc_refine_head']], dim=-1)
-    #     else:
-    #         traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
-    #                                   pred['scale_propose_pos'][..., :self.output_dim]], dim=-1)
-    #         traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
-    #                                  pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
-    #     pi = pred['pi']
-
-    #     if online_learning:
-    #         next_gt = self.num_historical_steps+ol_time_slice
-    #         gt = torch.cat((data['agent']['position'][:, self.num_historical_steps:next_gt].contiguous(),), dim=1)
-    #         # print('gt pos', gt.shape)
-
-    #         # gt_head_a = torch.cat((data['agent']['heading'][:, self.num_historical_steps:next_gt].contiguous(),), dim=1)
-    #         # print('gt pos', gt_head_a.shape)
-
-    #         # print('traj propose before shape', traj_propose.shape)
-    #         traj_propose = traj_propose[...,:ol_time_slice, :] 
-    #         # print('traj propose after shape', traj_propose.shape)
-    #         # print('traj refine shape', traj_refine.shape)
-    #         traj_refine = traj_refine[...,:ol_time_slice, :] 
-    #         # print('traj refine after', traj_refine.shape)
-    #         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:next_gt]
-    #         # print('reg mask shape: ', reg_mask.shape)
-    #         # print('cls_mask_shape:', cls_mask.shape)
-
-    #     else:
-    #         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
-
-    #     # print('gt shape: ', gt[..., :self.output_dim].shape)
-
-    #     if online_learning:
-    #         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-    #                             gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1)).sum(dim=-1)
-            
-    #         best_mode = l2_norm.argmin(dim=-1)
-    #         traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
-    #         traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
-    #         reg_loss_propose = self.reg_loss(traj_propose_best,
-    #                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1)
-    #         reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-    #         reg_loss_propose = reg_loss_propose.mean()
-    #         reg_loss_refine = self.reg_loss(traj_refine_best,
-    #                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1)
-    #         reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-    #         reg_loss_refine = reg_loss_refine.mean()
-    #         cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
-    #                                 target=gt[:, -1:, :self.output_dim + self.output_head],
-    #                                 prob=pi,
-    #                                 mask=reg_mask[:, -1:])
-    #     else:
-    #         # print(gt[..., :self.output_dim].unsqueeze(1).shape)
-    #         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-    #                             gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
+    def set_initial_historical_step(self, initial_his_steps):
+        self.initial_his_steps = initial_his_steps
+        self.encoder.agent_encoder.set_initial_historical_steps(initial_his_steps)
+        self.encoder.map_encoder.set_initial_historical_steps(initial_his_steps)
+        self.decoder.set_initial_historical_steps(initial_his_steps)
         
-    #         best_mode = l2_norm.argmin(dim=-1)
-    #         traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
-    #         traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
-    #         reg_loss_propose = self.reg_loss(traj_propose_best,
-    #                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
-    #         reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-    #         reg_loss_propose = reg_loss_propose.mean()
-    #         reg_loss_refine = self.reg_loss(traj_refine_best,
-    #                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
-    #         reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-    #         reg_loss_refine = reg_loss_refine.mean()
-    #         cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
-    #                                 target=gt[:, -1:, :self.output_dim + self.output_head],
-    #                                 prob=pi,
-    #                                 mask=reg_mask[:, -1:]) * cls_mask
-    #     cls_loss = cls_loss.sum() / cls_mask.sum().clamp_(min=1)
-    #     self.log('train_reg_loss_propose', reg_loss_propose, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
-    #     self.log('train_reg_loss_refine', reg_loss_refine, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
-    #     self.log('train_cls_loss', cls_loss, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
+    def compute_metrics(self, data, pred, num_gt_steps, online_learning = False):
+        # Assign the tensor to the 'scenario_id' column
+        self.df_metrics['scenario_id'] = data['scenario_id']
 
-    #     # Set requires_grad to True
-    #     reg_loss_propose.requires_grad_()
-    #     reg_loss_refine.requires_grad_()
-    #     cls_loss.requires_grad_()
-
-
-    #     loss = reg_loss_propose + reg_loss_refine + cls_loss
-
-    #     loss.requires_grad_()
-    #     return loss
-        
-    def training_step(self,
-                      data,
-                      batch_idx,
-                      online_learning,
-                      ol_time_slice: int,
-                      final_his_step):
-        # print('TRAINING STEP: ', self.num_historical_steps)
-        torch.cuda.empty_cache()
-        if isinstance(data, Batch):
-            data['agent']['av_index'] += data['agent']['ptr'][:-1]
+        if self.output_head:
+            traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
+                                      pred['loc_propose_head'],
+                                      pred['scale_propose_pos'][..., :self.output_dim],
+                                      pred['conc_propose_head']], dim=-1)
+            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
+                                     pred['loc_refine_head'],
+                                     pred['scale_refine_pos'][..., :self.output_dim],
+                                     pred['conc_refine_head']], dim=-1)
+        else:
+            traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
+                                      pred['scale_propose_pos'][..., :self.output_dim]], dim=-1)
+            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
+                                     pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
+        pi = pred['pi']
 
         # the mask is needed only to calculate the loss of ceirtain elements, for stabilization, so that with the background thep we don update all weights
-        reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
         cls_mask = data['agent']['predict_mask'][:, -1]
-        torch.set_grad_enabled(True)
-        pred = self(data)
-        if self.output_head:
-            traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
-                                      pred['loc_propose_head'],
-                                      pred['scale_propose_pos'][..., :self.output_dim],
-                                      pred['conc_propose_head']], dim=-1)
-            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
-                                     pred['loc_refine_head'],
-                                     pred['scale_refine_pos'][..., :self.output_dim],
-                                     pred['conc_refine_head']], dim=-1)
-        else:
-            traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
-                                      pred['scale_propose_pos'][..., :self.output_dim]], dim=-1)
-            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
-                                     pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
-        pi = pred['pi']
-
         if online_learning:
-            ol_time_slice = final_his_step-self.num_historical_steps
-            gt = torch.cat((data['agent']['position'][:, self.num_historical_steps:final_his_step].contiguous(),), dim=1)
-            # print('gt pos', gt.shape)
-
-            # gt_head_a = torch.cat((data['agent']['heading'][:, self.num_historical_steps:next_gt].contiguous(),), dim=1)
-            # print('gt pos', gt_head_a.shape)
-
-            # print('traj propose before shape', traj_propose.shape)
-            traj_propose = traj_propose[...,:ol_time_slice, :] 
-            # print('traj propose after shape', traj_propose.shape)
-            # print('traj refine shape', traj_refine.shape)
-            traj_refine = traj_refine[...,:ol_time_slice, :] 
-            # print('traj refine after', traj_refine.shape)
-            reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:final_his_step]
-            # print('reg mask shape: ', reg_mask.shape)
-            # print('cls_mask_shape:', cls_mask.shape)
-
+            # reduce size of traj propose and refine based on the number of steps we want to compare with the ground truth
+            traj_propose = traj_propose[...,:num_gt_steps, :] 
+            traj_refine = traj_refine[...,:num_gt_steps, :] 
+            reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:self.num_historical_steps+num_gt_steps]
+            reg_mask = torch.ones_like(reg_mask)
+            cls_mask = torch.ones_like(cls_mask)
+            gt = torch.cat([data['agent']['target'][:,self.num_historical_steps:self.num_historical_steps+num_gt_steps, :self.output_dim], data['agent']['target'][:,self.num_historical_steps:self.num_historical_steps+num_gt_steps, -1:]], dim=-1)
         else:
+            reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
             gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
-
-        # print('gt shape: ', gt[..., :self.output_dim].shape)
-
-        if online_learning:
-            l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-                                gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1)).sum(dim=-1)
             
-            best_mode = l2_norm.argmin(dim=-1)
-            traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
-            traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
-            reg_loss_propose = self.reg_loss(traj_propose_best,
-                                            gt[..., :self.output_dim + self.output_head]).sum(dim=-1)
-            reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-            reg_loss_propose = reg_loss_propose.mean()
-            reg_loss_refine = self.reg_loss(traj_refine_best,
-                                            gt[..., :self.output_dim + self.output_head]).sum(dim=-1)
-            reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-            reg_loss_refine = reg_loss_refine.mean()
-
-            all_ones_mask = torch.ones_like(reg_mask)
-            cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
-                                    target=gt[:, -1:, :self.output_dim + self.output_head],
-                                    prob=pi,
-                                    mask=all_ones_mask[:, -1])
+        if self.dataset == 'argoverse_v2':
+            eval_mask = data['agent']['category'] == 3
         else:
-            # print(gt[..., :self.output_dim].unsqueeze(1).shape)
-            l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-                                gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
-        
-            best_mode = l2_norm.argmin(dim=-1)
-            traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
-            traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
-            reg_loss_propose = self.reg_loss(traj_propose_best,
-                                            gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
-            reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-            reg_loss_propose = reg_loss_propose.mean()
-            reg_loss_refine = self.reg_loss(traj_refine_best,
-                                            gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
-            reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-            reg_loss_refine = reg_loss_refine.mean()
-            cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
-                                    target=gt[:, -1:, :self.output_dim + self.output_head],
-                                    prob=pi,
-                                    mask=reg_mask[:, -1:]) * cls_mask
-        cls_loss = cls_loss.sum() / cls_mask.sum().clamp_(min=1)
-        self.log('train_reg_loss_propose', reg_loss_propose, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
-        self.log('train_reg_loss_refine', reg_loss_refine, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
-        self.log('train_cls_loss', cls_loss, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)
+            raise ValueError('{} is not a valid dataset'.format(self.dataset))
+        pi_eval = F.softmax(pi[eval_mask], dim=-1)
 
-        # Set requires_grad to True
-        # reg_loss_propose.requires_grad_()
-        # reg_loss_refine.requires_grad_()
-        # cls_loss.requires_grad_()
-
-        self.save_loss_cls.append(cls_loss.cpu())
-        self.save_loss_refine.append(reg_loss_refine.cpu())
-        self.save_loss_propose.append(reg_loss_propose.cpu())
-
-        loss = reg_loss_propose + reg_loss_refine + cls_loss
-
-
-        # print('[TRAING STEP] LOSS:', loss)
-
-        loss.requires_grad_()
-        return loss
-    
-    def online_learning_update(self, data, initial_hstorical_steps, final_his_step, batch_idx, ol_time_slice):
-         # Clear the memory used by the GPU
-        torch.cuda.empty_cache()
-
-        # enable grads
-        torch.set_grad_enabled(True)
-        for i in range(initial_hstorical_steps, final_his_step, ol_time_slice):
-            self.set_num_historical_steps(i)
-            # print(i, '-',initial_hstorical_steps, '-', final_his_step,'-------------------------------------------------------------------')
-            loss = self.training_step(data, batch_idx, online_learning = True, ol_time_slice=ol_time_slice, final_his_step = final_his_step)
-            # print('[online_learning STEP] LOSS:', loss)
-            # print('loss:', loss)
-
-            # clear gradients
-            self.optimizer.zero_grad()
-
-            # Compute gradients
-            loss.backward()
-
-            # print('self.optimizer', self.optimizer)
-
-            # Update model parameters
-            self.optimizer.step()
-
-            # Zero the gradients
-            self.optimizer.zero_grad()
-        self.set_num_historical_steps(final_his_step)
-
-
-    # def online_learning_update(self, data, initial_hstorical_steps, final_his_step, batch_idx, ol_time_slice):
-    #      # Clear the memory used by the GPU
-    #     torch.cuda.empty_cache()
-
-    #     # enable grads
-    #     torch.set_grad_enabled(True)
-    #     for i in range(initial_hstorical_steps, final_his_step,50):
-    #         self.set_num_historical_steps(i)
-    #         # print(i, '-',initial_hstorical_steps, '-', final_his_step,'-------------------------------------------------------------------')
-    #         loss = self.training_step(data, batch_idx, online_learning = True, ol_time_slice=ol_time_slice)
-
-    #         # print('loss:', loss)
-
-    #         # clear gradients
-    #         self.optimizer.zero_grad()
-
-    #         # Compute gradients
-    #         loss.backward()
-
-    #         # Update model parameters
-    #         self.optimizer.step()
-
-    #         # Zero the gradients
-    #         self.optimizer.zero_grad()
-    #     self.set_num_historical_steps(final_his_step)
-        
-
-    def validation_step(self,
-                        data,
-                        batch_idx):
-        # Clear the memory used by the GPU
-        torch.cuda.empty_cache()
-
-        
-
-        # Access the weights of the model's layers
-        for module_name, module in self.named_modules():
-            if 'decoder' in module_name:
-                # print(module_name)
-                module.train()
-            # for param_name, param in module.named_parameters():
-            #         full_param_name = '%s.%s' % (module_name, param_name) if module_name else param_name
-
-                    # if 'decoder.to_pi.mlp.0.weight' in full_param_name:
-                        # print('--------------------------------------------------------------------------------------------------------------')
-                        # print(f"Weights of {full_param_name}:")
-                        # print(param.data)
-
-
-        initial_hstorical_steps = 20
-        final_his_step = 50
-
-        self.online_learning_update(data, initial_hstorical_steps, final_his_step, batch_idx, ol_time_slice = 5)
-
-
-        if isinstance(data, Batch):
-            data['agent']['av_index'] += data['agent']['ptr'][:-1]
-
-        #print(data['scenario_id'])
-
-        # Create an empty DataFrame
-        df_metrics = pd.DataFrame(columns=['scenario_id','val_Brier','val_minADE','val_minAHE', 'val_minFDE','val_minFHE','val_minMR'])
-
-        # Assign the tensor to the 'scenario_id' column
-        df_metrics['scenario_id'] = data['scenario_id']
-
-        reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
-        cls_mask = data['agent']['predict_mask'][:, -1]
-        pred = self(data)
-        if self.output_head:
-            traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
-                                      pred['loc_propose_head'],
-                                      pred['scale_propose_pos'][..., :self.output_dim],
-                                      pred['conc_propose_head']], dim=-1)
-            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
-                                     pred['loc_refine_head'],
-                                     pred['scale_refine_pos'][..., :self.output_dim],
-                                     pred['conc_refine_head']], dim=-1)
-        else:
-            traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
-                                      pred['scale_propose_pos'][..., :self.output_dim]], dim=-1)
-            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
-                                     pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
-        pi = pred['pi']
-
-        # print('heading: last element od data(agent)(target): ',data['agent']['target'][..., -1:].shape)
-
-        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
-        # print(traj_propose[..., :self.output_dim].shape)
-        # print(gt[..., :self.output_dim].unsqueeze(1).shape)
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-                              gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
+                            gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
         traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
         traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
         reg_loss_propose = self.reg_loss(traj_propose_best,
-                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
+                                        gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
         reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
         reg_loss_propose = reg_loss_propose.mean()
         reg_loss_refine = self.reg_loss(traj_refine_best,
@@ -588,67 +306,69 @@ class QCNet(pl.LightningModule):
         reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
         reg_loss_refine = reg_loss_refine.mean()
         cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
-                                 target=gt[:, -1:, :self.output_dim + self.output_head],
-                                 prob=pi,
-                                 mask=reg_mask[:, -1:]) * cls_mask
+                                target=gt[:, -1:, :self.output_dim + self.output_head],
+                                prob=pi,
+                                mask=reg_mask[:, -1:]) * cls_mask
         cls_loss = cls_loss.sum() / cls_mask.sum().clamp_(min=1)
-        self.log('val_reg_loss_propose', reg_loss_propose, prog_bar=True, on_step=False, on_epoch=True, batch_size=1,
-                 sync_dist=True)
-        self.log('val_reg_loss_refine', reg_loss_refine, prog_bar=True, on_step=False, on_epoch=True, batch_size=1,
-                 sync_dist=True)
-        self.log('val_cls_loss', cls_loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=1, sync_dist=True)
 
+        loss = reg_loss_propose + reg_loss_refine + cls_loss
+
+        self.log('val_reg_loss_propose', reg_loss_propose, prog_bar=True, on_step=False, on_epoch=True, batch_size=1, sync_dist=True)
+        self.log('val_reg_loss_refine', reg_loss_refine, prog_bar=True, on_step=False, on_epoch=True, batch_size=1, sync_dist=True)
+        self.log('val_cls_loss', cls_loss, prog_bar=True, on_step=False, on_epoch=True, batch_size=1, sync_dist=True)
 
         self.save_loss_cls.append(cls_loss.cpu())
         self.save_loss_refine.append(reg_loss_refine.cpu())
         self.save_loss_propose.append(reg_loss_propose.cpu())
 
-        if self.dataset == 'argoverse_v2':
-            eval_mask = data['agent']['category'] == 3
-        else:
-            raise ValueError('{} is not a valid dataset'.format(self.dataset))
         valid_mask_eval = reg_mask[eval_mask]
         traj_eval = traj_refine[eval_mask, :, :, :self.output_dim + self.output_head]
         if not self.output_head:
             traj_2d_with_start_pos_eval = torch.cat([traj_eval.new_zeros((traj_eval.size(0), self.num_modes, 1, 2)),
-                                                     traj_eval[..., :2]], dim=-2)
+                                                    traj_eval[..., :2]], dim=-2)
             motion_vector_eval = traj_2d_with_start_pos_eval[:, :, 1:] - traj_2d_with_start_pos_eval[:, :, :-1]
             head_eval = torch.atan2(motion_vector_eval[..., 1], motion_vector_eval[..., 0])
             traj_eval = torch.cat([traj_eval, head_eval.unsqueeze(-1)], dim=-1)
-        pi_eval = F.softmax(pi[eval_mask], dim=-1)
+        
         gt_eval = gt[eval_mask]
 
-        brier = self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-        min_ade = self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-        min_ahe = self.minAHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-        min_fde = self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,valid_mask=valid_mask_eval, df_metrics=df_metrics)
+        self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=self.df_metrics)
+        self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=self.df_metrics)
+        self.minAHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=self.df_metrics)
+        self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,valid_mask=valid_mask_eval, df_metrics=self.df_metrics)
+        self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=self.df_metrics)
+        self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=self.df_metrics)
 
-        min_fhe = self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-        min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-        
-
-        # Clear the memory used by the GPU
-        torch.cuda.empty_cache()
-
-        # df_metrics['val_Brier'] = brier
-        # df_metrics['val_minADE'] = min_ade
-        # df_metrics['val_minAHE'] = min_ahe
-        # df_metrics['val_minFDE'] = min_fde
-        # df_metrics['val_minFHE'] = min_fhe
-        # df_metrics['val_minMR'] = min_mr
-
-        # print(df_metrics)
+        self.log('val_Brier', self.Brier, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
+        self.log('val_minADE', self.minADE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
+        self.log('val_minAHE', self.minAHE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
+        self.log('val_minFDE', self.minFDE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
+        self.log('val_minFHE', self.minFHE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
+        self.log('val_MR', self.MR, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
 
         # save to csv
-        df_metrics.to_csv('val_metrics.csv', mode='a', index=False, header=False)
+        self.df_metrics.to_csv('val_metrics.csv', mode='a', index=False, header=False)
+
+        return loss
 
 
-        # print('val_Brier: ', brier)
-        # print('val_minADE: ', min_ade)
-        # print('val_minAHE: ', min_ahe)
-        # print('val_minFDE: ', min_fde)
-        # print('val_minFHE: ', min_fhe)
-        # print('val_minMR: ', min_mr)
+    def save_trajectory(self, data, pred):
+        # save trajecotry to file submission
+        if self.output_head:
+            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
+                                     pred['loc_refine_head'],
+                                     pred['scale_refine_pos'][..., :self.output_dim],
+                                     pred['conc_refine_head']], dim=-1)
+        else:
+            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
+                                     pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
+        pi = pred['pi']
+    
+        if self.dataset == 'argoverse_v2':
+            eval_mask = data['agent']['category'] == 3
+        else:
+            raise ValueError('{} is not a valid dataset'.format(self.dataset))
+        pi_eval = F.softmax(pi[eval_mask], dim=-1)
 
         origin_eval = data['agent']['position'][eval_mask, self.num_historical_steps - 1]
         theta_eval = data['agent']['heading'][eval_mask, self.num_historical_steps - 1]
@@ -658,42 +378,120 @@ class QCNet(pl.LightningModule):
         rot_mat[:, 0, 1] = sin
         rot_mat[:, 1, 0] = -sin
         rot_mat[:, 1, 1] = cos
-        # print('NOT TO SUBMIT: ',traj_eval)
         traj_eval = torch.matmul(traj_refine[eval_mask, :, :, :2], rot_mat.unsqueeze(1)) + origin_eval[:, :2].reshape(-1, 1, 1, 2)
-        # print('-----------------------------------------------------------------------------------------')
-        # print('TO SUBMIT: ',traj_eval)
-        # print('-----------------------------------------------------------------------------------------')
-        # print('mask: ', eval_mask)
-        # print('probabilities: ', pi_eval)
         traj_eval= traj_eval.cpu().numpy()
+        pi_eval = pi_eval.cpu().numpy()
+
         if self.dataset == 'argoverse_v2':
             eval_id = list(compress(list(chain(*data['agent']['id'])), eval_mask))
             if isinstance(data, Batch):
                 for i in range(data.num_graphs):
-                    self.test_predictions[data['scenario_id'][i]] = {eval_id[i]: (traj_eval[i], pi_eval[i].cpu().numpy())}
+                    self.test_predictions[data['scenario_id'][i]] = {eval_id[i]: (traj_eval[i], pi_eval[i])}
             else:
-                self.test_predictions[data['scenario_id'][i]] = {eval_id[0]: (traj_eval[0], pi_eval[0].cpu().numpy())}
+                self.test_predictions[data['scenario_id'][i]] = {eval_id[0]: (traj_eval[0], pi_eval[0])}
         else:
             raise ValueError('{} is not a valid dataset'.format(self.dataset))
 
 
+    def training_step(self,
+                      data,
+                      batch_idx,
+                      num_gt_steps: int):
+        torch.cuda.empty_cache()
+        if isinstance(data, Batch):
+            data['agent']['av_index'] += data['agent']['ptr'][:-1]
+
+        torch.set_grad_enabled(True)
+        pred = self(data)           
+
+        loss = self.compute_metrics(data, pred, num_gt_steps, self.online_learning)
+        loss.requires_grad_()
+
+        return loss
+
+    def online_learning_update(self, data, initial_hstorical_steps, final_his_step, batch_idx, ol_time_slice):
+        # Clear the memory used by the GPU
+        torch.cuda.empty_cache()
+
+        # enable grads
+        torch.set_grad_enabled(True)
+        for i in range(initial_hstorical_steps, final_his_step-ol_time_slice+1, int(ol_time_slice/2)):
+            self.set_num_historical_steps(i)
+
+            if self.ol_version == 0:
+                self.set_initial_historical_step(i-ol_time_slice)
+                num_gt_steps = final_his_step-self.num_historical_steps if final_his_step-self.num_historical_steps<self.num_future_steps else self.num_future_steps
+            else:
+                num_gt_steps = ol_time_slice
+                
+            loss = self.training_step(data, batch_idx, num_gt_steps = num_gt_steps)
+
+            # clear gradients
+            self.optimizer.zero_grad()
+
+            # Compute gradients
+            loss.backward()
+
+            # Update model parameters
+            self.optimizer.step()
+
+            # Zero the gradients
+            self.optimizer.zero_grad()
+
+
+        self.set_num_historical_steps(final_his_step)
+
+        if self.ol_version == 0:
+                self.set_initial_historical_step(final_his_step-ol_time_slice)
         
-        self.log('val_Brier', self.Brier, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
-        self.log('val_minADE', self.minADE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
-        self.log('val_minAHE', self.minAHE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
-        self.log('val_minFDE', self.minFDE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
-        self.log('val_minFHE', self.minFHE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
-        self.log('val_MR', self.MR, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
+
+    def validation_step(self,
+                        data,
+                        batch_idx):
+        # Clear the memory used by the GPU
+        torch.cuda.empty_cache()
+
+        if self.online_learning:
+            for module_name, module in self.named_modules():
+                if 'decoder' in module_name:
+                    module.train()
+                    # Reset the model weights to their original values
+                    module.load_state_dict(self.original_weights[module_name])
+
+                # for param_name, param in module.named_parameters():
+                #         full_param_name = '%s.%s' % (module_name, param_name) if module_name else param_name
+
+                        # if 'decoder.to_pi.mlp.0.weight' in full_param_name:
+                            # print('--------------------------------------------------------------------------------------------------------------')
+                            # print(f"Weights of {full_param_name}:")
+                            # print(param.data)
+                    
+            self.online_learning_update(data, self.initial_hstorical_steps, self.final_his_step, batch_idx, self.ol_time_slice)
+
+
+            for module_name, module in self.named_modules():
+                module.eval()
+
+        if isinstance(data, Batch):
+            data['agent']['av_index'] += data['agent']['ptr'][:-1]
+
+        pred = self(data)
+
+        if self.dataset == 'argoverse_v2' and self.final_his_step <= 110 - self.num_future_steps:
+            print('computing metrics in the last step')
+            self.compute_metrics(data, pred, online_learning=False)
+
+        # Clear the memory used by the GPU
+        torch.cuda.empty_cache()
+
+        self.save_trajectory(data, pred)
 
     def on_validation_end(self):
         if self.dataset == 'argoverse_v2':
             save_path = Path(self.submission_dir) / f'{self.submission_file_name}_val.parquet'
             ChallengeSubmission(self.test_predictions).to_parquet(save_path)
             print('saved in: ', save_path)
-
-            
-
-            # Assuming save_loss_cls, save_loss_refine, and save_loss_propose are lists containing loss values
+            print('Metrics saved to val_metrics.csv')
 
             # Generate x-axis values (iterations or epochs)
             iterations = range(len(self.save_loss_cls))
@@ -723,77 +521,7 @@ class QCNet(pl.LightningModule):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
         pred = self(data)
 
-        # print("DATA",data)
-        # print("PRED",pred)
-
-        # Create an empty DataFrame
-        df_metrics = pd.DataFrame(columns=['scenario_id','val_Brier','val_minADE','val_minAHE', 'val_minFDE','val_minFHE','val_minMR'])
-
-        # Assign the tensor to the 'scenario_id' column
-        df_metrics['scenario_id'] = data['scenario_id']
-
-        if self.output_head:
-            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
-                                     pred['loc_refine_head'],
-                                     pred['scale_refine_pos'][..., :self.output_dim],
-                                     pred['conc_refine_head']], dim=-1)
-        else:
-            traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
-                                     pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
-        pi = pred['pi']
-        # print(len(data['agent']['target'][..., :self.output_dim]))
-        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
-        # print(len(gt))
-        # print(self.num_historical_steps)
-        reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
-
-
-        if self.dataset == 'argoverse_v2':
-            eval_mask = data['agent']['category'] == 3
-        else:
-            raise ValueError('{} is not a valid dataset'.format(self.dataset))
-        origin_eval = data['agent']['position'][eval_mask, self.num_historical_steps - 1]
-        theta_eval = data['agent']['heading'][eval_mask, self.num_historical_steps - 1]
-        cos, sin = theta_eval.cos(), theta_eval.sin()
-        rot_mat = torch.zeros(eval_mask.sum(), 2, 2, device=self.device)
-        rot_mat[:, 0, 0] = cos
-        rot_mat[:, 0, 1] = sin
-        rot_mat[:, 1, 0] = -sin
-        rot_mat[:, 1, 1] = cos
-        traj_eval = torch.matmul(traj_refine[eval_mask, :, :, :2],
-                                 rot_mat.unsqueeze(1)) + origin_eval[:, :2].reshape(-1, 1, 1, 2)
-        print(eval_mask)
-        pi_eval = F.softmax(pi[eval_mask], dim=-1)
-
-        valid_mask_eval = reg_mask[eval_mask]
-        gt_eval = gt[eval_mask]
-
-        brier = self.Brier.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-        min_ade = self.minADE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-        min_ahe = self.minAHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-        min_fde = self.minFDE.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval,valid_mask=valid_mask_eval, df_metrics=df_metrics)
-
-        min_fhe = self.minFHE.update(pred=traj_eval, target=gt_eval, prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-        min_mr = self.MR.update(pred=traj_eval[..., :self.output_dim], target=gt_eval[..., :self.output_dim], prob=pi_eval, valid_mask=valid_mask_eval, df_metrics=df_metrics)
-
-        traj_eval = traj_eval.cpu().numpy()
-        pi_eval = pi_eval.cpu().numpy()
-
-        print('PI: ', pi_eval)
-
-        if self.dataset == 'argoverse_v2':
-            eval_id = list(compress(list(chain(*data['agent']['id'])), eval_mask))
-            if isinstance(data, Batch):
-                for i in range(data.num_graphs):
-                    self.test_predictions[data['scenario_id'][i]] = {eval_id[i]: (traj_eval[i], pi_eval[i])}
-            else:
-                self.test_predictions[data['scenario_id'][i]] = {eval_id[0]: (traj_eval[0], pi_eval[0])}
-        else:
-            raise ValueError('{} is not a valid dataset'.format(self.dataset))
-
-        # save to csv
-        df_metrics.to_csv('test_metrics.csv', mode='a', index=False, header=False)
-
+        self.save_trajectory(data, pred)
 
     def on_test_end(self):
         if self.dataset == 'argoverse_v2':

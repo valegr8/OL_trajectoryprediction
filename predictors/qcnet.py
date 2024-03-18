@@ -40,10 +40,9 @@ import pandas as pd
 
 import torch.optim as optim
 
-try:
-    from av2.datasets.motion_forecasting.eval.submission import ChallengeSubmission
-except ImportError:
-    ChallengeSubmission = object
+
+from av2api import submission
+from av2.datasets.motion_forecasting.eval.submission import ChallengeSubmission
 
 
 class QCNet(pl.LightningModule):
@@ -179,15 +178,16 @@ class QCNet(pl.LightningModule):
 
 
         # Create an empty DataFrame
-        self.df_metrics = pd.DataFrame(columns=['scenario_id','val_Brier','val_minADE','val_minAHE', 'val_minFDE','val_minFHE','val_minMR'])
+        self.df_metrics = pd.DataFrame(columns=['scenario_id','timestep','val_Brier','val_minADE','val_minAHE', 'val_minFDE','val_minFHE','val_minMR'])
 
         self.online_learning = True
         self.initial_hstorical_steps = 20
         self.ol_time_slice = 20
-        self.final_his_step = 110
-        self.dataset_future_steps = 60
+        self.final_his_step = 50
+        self.dataset_steps = 110
         self.dataset_his_steps = 50
         self.ol_version = 0
+        self.save_metrics_path = 'val_metrics.csv'
 
 
     def optimizer_MLP(self):
@@ -229,8 +229,6 @@ class QCNet(pl.LightningModule):
 
         self.optimizer = optimizer
 
-        print('OPTIMIZER CHANGED')
-
         return optimizer
 
 
@@ -254,7 +252,11 @@ class QCNet(pl.LightningModule):
         
     def compute_metrics(self, data, pred, num_gt_steps, online_learning = False):
         # Assign the tensor to the 'scenario_id' column
-        self.df_metrics['scenario_id'] = data['scenario_id']
+        # print(self.df_metrics['scenario_id'],'---',data['scenario_id'])
+        # self.df_metrics['scenario_id'] = data['scenario_id']
+
+        self.df_metrics = pd.DataFrame({'scenario_id': data['scenario_id']})
+        self.df_metrics['timestep'] = self.num_historical_steps
 
         if self.output_head:
             traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
@@ -281,10 +283,11 @@ class QCNet(pl.LightningModule):
             reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:self.num_historical_steps+num_gt_steps]
             reg_mask = torch.ones_like(reg_mask)
             cls_mask = torch.ones_like(cls_mask)
-            gt = torch.cat([data['agent']['target'][:,self.num_historical_steps:self.num_historical_steps+num_gt_steps, :self.output_dim], data['agent']['target'][:,self.num_historical_steps:self.num_historical_steps+num_gt_steps, -1:]], dim=-1)
+            
         else:
             reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
-            gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
+        
+        gt = torch.cat([data['agent']['target'][:,self.num_historical_steps:self.num_historical_steps+num_gt_steps, :self.output_dim], data['agent']['target'][:,self.num_historical_steps:self.num_historical_steps+num_gt_steps, -1:]], dim=-1)
             
         if self.dataset == 'argoverse_v2':
             eval_mask = data['agent']['category'] == 3
@@ -346,8 +349,8 @@ class QCNet(pl.LightningModule):
         self.log('val_minFHE', self.minFHE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
         self.log('val_MR', self.MR, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
 
-        # save to csv
-        self.df_metrics.to_csv('val_metrics.csv', mode='a', index=False, header=False)
+        print(self.df_metrics.iloc[-1])
+        self.df_metrics.to_csv(self.save_metrics_path, mode='a', index=False, header=False)
 
         return loss
 
@@ -386,11 +389,9 @@ class QCNet(pl.LightningModule):
             eval_id = list(compress(list(chain(*data['agent']['id'])), eval_mask))
             if isinstance(data, Batch):
                 for i in range(data.num_graphs):
-                    self.test_predictions[data['scenario_id'][i]] = {eval_id[i]: (traj_eval[i], pi_eval[i])}
+                    self.test_predictions[data['scenario_id'][i]] = {self.num_historical_steps: {eval_id[i]: (traj_eval[i], pi_eval[i])}} 
             else:
-                self.test_predictions[data['scenario_id'][i]] = {eval_id[0]: (traj_eval[0], pi_eval[0])}
-        else:
-            raise ValueError('{} is not a valid dataset'.format(self.dataset))
+                self.test_predictions[data['scenario_id'][i]] = {self.num_historical_steps: {eval_id[0]: (traj_eval[0], pi_eval[0])}} 
 
 
     def training_step(self,
@@ -405,6 +406,10 @@ class QCNet(pl.LightningModule):
         pred = self(data)           
 
         loss = self.compute_metrics(data, pred, num_gt_steps, self.online_learning)
+
+        if self.online_learning:
+            self.save_trajectory(data, pred)
+
         loss.requires_grad_()
 
         return loss
@@ -477,9 +482,8 @@ class QCNet(pl.LightningModule):
 
         pred = self(data)
 
-        if self.dataset == 'argoverse_v2' and self.final_his_step <= 110 - self.num_future_steps:
-            print('computing metrics in the last step')
-            self.compute_metrics(data, pred, online_learning=False)
+        if self.dataset == 'argoverse_v2' and self.final_his_step <= self.dataset_steps - self.num_future_steps:
+            self.compute_metrics(data, pred, num_gt_steps=self.num_future_steps, online_learning=False)
 
         # Clear the memory used by the GPU
         torch.cuda.empty_cache()
@@ -489,9 +493,13 @@ class QCNet(pl.LightningModule):
     def on_validation_end(self):
         if self.dataset == 'argoverse_v2':
             save_path = Path(self.submission_dir) / f'{self.submission_file_name}_val.parquet'
-            ChallengeSubmission(self.test_predictions).to_parquet(save_path)
+
+            if self.online_learning:
+                submission.ChallengeSubmission(self.test_predictions).to_parquet(save_path)
+            else: 
+                ChallengeSubmission(self.test_predictions).to_parquet(save_path)
             print('saved in: ', save_path)
-            print('Metrics saved to val_metrics.csv')
+            print('Metrics saved to ', self.save_metrics_path)
 
             # Generate x-axis values (iterations or epochs)
             iterations = range(len(self.save_loss_cls))
@@ -526,10 +534,15 @@ class QCNet(pl.LightningModule):
     def on_test_end(self):
         if self.dataset == 'argoverse_v2':
             save_path = Path(self.submission_dir) / f'{self.submission_file_name}.parquet'
-            ChallengeSubmission(self.test_predictions).to_parquet(save_path)
+            if self.online_learning:
+                submission.ChallengeSubmission(self.test_predictions).to_parquet(save_path)
+            else: 
+                ChallengeSubmission(self.test_predictions).to_parquet(save_path)
             print('saved in: ', save_path)
         else:
             raise ValueError('{} is not a valid dataset'.format(self.dataset))
+        
+        print('Metrics saved to ', self.save_metrics_path)
 
     def configure_optimizers(self):
         decay = set()

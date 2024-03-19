@@ -78,13 +78,13 @@ if __name__ == '__main__':
         os.remove(metrics_savepath)
 
     # Manually create a header dataframe with the column names
-    header_df = pd.DataFrame({'scenario_id': ['scenario_id'], 'val_Brier': ['val_Brier'], 'val_minADE': ['val_minADE'], 'val_minAHE': ['val_minAHE'], 'val_minFDE': ['val_minFDE'], 'val_minFHE': ['val_minFHE'], 'val_minMR': ['val_minMR']})
+    header_df = pd.DataFrame({'scenario_id': ['scenario_id'], 'timestep': ['timestep'], 'val_Brier': ['val_Brier'], 'val_minADE': ['val_minADE'], 'val_minAHE': ['val_minAHE'], 'val_minFDE': ['val_minFDE'], 'val_minFHE': ['val_minFHE'], 'val_minMR': ['val_minMR']})
 
 
     # Append the header dataframe to the main dataframe
     header_df.to_csv('val_metrics.csv', index=False, header=False)
 
-    # val_dataset = val_dataset[:1] 
+    val_dataset = val_dataset[:10] 
 
     # Clear the memory used by the GPU
     torch.cuda.empty_cache()

@@ -349,7 +349,7 @@ class QCNet(pl.LightningModule):
         self.log('val_minFHE', self.minFHE, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
         self.log('val_MR', self.MR, prog_bar=True, on_step=False, on_epoch=True, batch_size=gt_eval.size(0))
 
-        print(self.df_metrics.iloc[-1])
+        # print(self.df_metrics.iloc[-1])
         self.df_metrics.to_csv(self.save_metrics_path, mode='a', index=False, header=False)
 
         return loss
@@ -389,9 +389,15 @@ class QCNet(pl.LightningModule):
             eval_id = list(compress(list(chain(*data['agent']['id'])), eval_mask))
             if isinstance(data, Batch):
                 for i in range(data.num_graphs):
-                    self.test_predictions[data['scenario_id'][i]] = {self.num_historical_steps: {eval_id[i]: (traj_eval[i], pi_eval[i])}} 
+                    if self.online_learning:
+                        self.test_predictions[data['scenario_id'][i],self.num_historical_steps] = {eval_id[i]: (traj_eval[i], pi_eval[i])}
+                    else:
+                        self.test_predictions[data['scenario_id'][i]] = {eval_id[i]: (traj_eval[i], pi_eval[i])}
             else:
-                self.test_predictions[data['scenario_id'][i]] = {self.num_historical_steps: {eval_id[0]: (traj_eval[0], pi_eval[0])}} 
+                if self.online_learning:
+                    self.test_predictions[data['scenario_id'][i],self.num_historical_steps] = {eval_id[0]: (traj_eval[0], pi_eval[0])}
+                else:
+                    self.test_predictions[data['scenario_id'][i]] = {eval_id[0]: (traj_eval[0], pi_eval[0])}
 
 
     def training_step(self,

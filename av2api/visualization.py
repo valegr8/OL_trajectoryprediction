@@ -109,7 +109,7 @@ def visualize_scenario(scenario: ArgoverseScenario, scenario_static_map: Argover
         video.write(cv2.cvtColor(np.array(frame_temp), cv2.COLOR_RGB2BGR))
     video.release()
 
-def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubmission,  scenario_static_map: ArgoverseStaticMap, save_path: Path, timestep: int = None):
+def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubmission,  scenario_static_map: ArgoverseStaticMap, save_path: Path, timestep: int = None, online_learning = False):
     """Build dynamic visualization for all tracks and the local map associated with an Argoverse scenario.
 
     Note: This function uses OpenCV to create a MP4 file using the MP4V codec.
@@ -129,12 +129,11 @@ def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubm
 
     #for outer_key, outer_value in submission.predictions.items():
 
-    outer_key = scenario.scenario_id
     coordinates_array = [] 
     probabilities_array = [] 
     
-    outer_value = submission.predictions[scenario.scenario_id]    
-    if len(outer_value) == 0:
+    predictions_val = submission.predictions[scenario.scenario_id]    
+    if len(predictions_val) == 0:
         print(f'{scenario.scenario_id} does not exist in the submission file')
 
     fig, ax = plt.subplots()
@@ -155,16 +154,44 @@ def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubm
 
             i = 0
             #plot prediction
-            for inner_key, inner_value in outer_value.items():
-                i +=1
-                coordinates_array = inner_value[0]
-                probabilities_array = inner_value[1]
+            if online_learning:
+                # Get an iterator for the dictionary items
+                iterator = iter(predictions_val.items())
+                try:
+                    # Get the next prediction item
+                    next_key, next_val = next(iterator)
+                except StopIteration:
+                    # Handle the case when there are no more items
+                    next_key = None
+                exit_check = False
+                for timestep_key, timestep_val in predictions_val.items():
+                    # Access the current prediction item
+                    try:
+                        # Get the next prediction item
+                        next_key, next_val = next(iterator)
+                    except StopIteration:
+                        # Handle the case when there are no more items
+                        next_key = None
+                    if next_key==None or (timestep_key >= timestep and timestep<next_key):
+                        for track_id, track_val in timestep_val.items():
+                            i +=1
+                            coordinates_array = track_val[0]
+                            probabilities_array = track_val[1]
 
-                # print(coordinates_array)
-                # print(probabilities_array)
+                            #plot prediction
+                            _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
+                            exit_check = True
+                        
+                        if exit_check:
+                            break
+            else:
+                for inner_key, inner_value in predictions_val.items():
+                    i +=1
+                    coordinates_array = inner_value[0]
+                    probabilities_array = inner_value[1]
 
-                #plot prediction
-                _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
+                    #plot prediction
+                    _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
 
             # Set map bounds to capture focal trajectory history (with fixed buffer in all directions)
             plt.xlim(plot_bounds[0] - _PLOT_BOUNDS_BUFFER_M, plot_bounds[1] + _PLOT_BOUNDS_BUFFER_M)
@@ -205,19 +232,45 @@ def visualize_predictions(scenario: ArgoverseScenario, submission: ChallengeSubm
 
         i = 0
         #plot prediction
-        for inner_key, inner_value in outer_value.items():
-            i +=1
-            coordinates_array = inner_value[0]
-            probabilities_array = inner_value[1]
+        if online_learning:
+            # Get an iterator for the dictionary items
+            iterator = iter(predictions_val.items())
+            try:
+                # Get the next prediction item
+                next_key, next_val = next(iterator)
+            except StopIteration:
+                # Handle the case when there are no more items
+                next_key = -1
+            exit_check = False
+            for timestep_key, timestep_val in predictions_val.items():
+                # Access the current prediction item
+                try:
+                    # Get the next prediction item
+                    next_key, next_val = next(iterator)
+                except StopIteration:
+                    # Handle the case when there are no more items
+                    next_key = -1
 
-            # print(coordinates_array)
-            # print(probabilities_array)
+                if next_key==-1 or (timestep_key >= timestep and timestep<next_key):
+                    for track_id, track_val in timestep_val.items():
+                        i +=1
+                        coordinates_array = track_val[0]
+                        probabilities_array = track_val[1]
 
-            #plot prediction
-            _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
-            # print(f'scenario_id {outer_key}, track_id: {inner_key}')
-            # print(f'Coordinates Array: {coordinates_array}')
-            # print(f'Probabilities Array: {probabilities_array}')
+                        #plot prediction
+                        _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
+                        exit_check = True
+                    
+                    if exit_check:
+                        break
+        else:
+            for inner_key, inner_value in predictions_val.items():
+                i +=1
+                coordinates_array = inner_value[0]
+                probabilities_array = inner_value[1]
+
+                #plot prediction
+                _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
 
         # plt.show()
         

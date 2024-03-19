@@ -14,6 +14,8 @@ import visualization #custom visualization api
 from av2.datasets.motion_forecasting import scenario_serialization
 from av2.datasets.motion_forecasting.eval.submission import ChallengeSubmission
 
+import submission
+
 from av2.datasets.motion_forecasting.data_schema import TrackCategory, ArgoverseScenario
 from av2.datasets.motion_forecasting.eval import metrics
 
@@ -22,15 +24,16 @@ import matplotlib.pyplot as plt
 
 
 #compute metrics
-def compute_metrics(scenario:ArgoverseScenario, submission:ChallengeSubmission):
+def compute_metrics(scenario:ArgoverseScenario, submission, online_learning = False):
     # # for each element in the submission file get predicted trajectories and gt
     outer_key = scenario.scenario_id
     coordinates_array = [] 
     probabilities_array = [] 
     track_predictions = []  
 
-    predictions = submission.predictions[scenario.scenario_id]  
 
+    predictions = submission.predictions[scenario.scenario_id] 
+    
     print('Scenario id: ', scenario.scenario_id)
 
     for track in scenario.tracks:
@@ -46,25 +49,26 @@ def compute_metrics(scenario:ArgoverseScenario, submission:ChallengeSubmission):
                 print(f'{scenario.scenario_id} does not exist in the submission file')
             else:  
                 print('Track id: ',track.track_id) 
-                forecasted_trajectories = predictions[track.track_id][0] 
+                
+                if online_learning:
+                    print('-------------------------METRICS OL-----------------------')
+                    for timestep, timestep_val in predictions.items():
+                        forecasted_trajectories = predictions[timestep][track.track_id][0] 
 
-    # forecasted_trajectories: (K, N, 2) predicted trajectories, each N timestamps in length.
-    # gt_trajectory: (N, 2) ground truth trajectory.
-    # print(forecasted_trajectories.shape)
-    # print(gt_trajectory.shape)
-    ade = metrics.compute_ade(forecasted_trajectories, gt_trajectory) 
-    fde = metrics.compute_fde(forecasted_trajectories, gt_trajectory) 
-    print('-------------------------METRICS (computed using av2-api)-----------------------')
-    print('ADE', ade, ' - minADE:', min(ade))
-    print('FDE', fde, ' - minFDE:', min(fde))
+                        ade = metrics.compute_ade(forecasted_trajectories, gt_trajectory) 
+                        fde = metrics.compute_fde(forecasted_trajectories, gt_trajectory) 
+                        
+                        print(timestep,') ADE', ade, ' - minADE:', min(ade))
+                        print(timestep,') FDE', fde, ' - minFDE:', min(fde))
+                else:
+                    print('-------------------------METRICS NO OL-----------------------')
+                    forecasted_trajectories = predictions[track.track_id][0] 
 
-    # for inner_key, inner_value in outer_value.items():
-    #     coordinates_array = inner_value[0]
-    #     probabilities_array = inner_value[1]
-
-        # print(f'scenario_id {outer_key}, track_id: {inner_key}')
-        # print(f'Coordinates Array: {coordinates_array}')
-        # print(f'Probabilities Array: {probabilities_array}')
+                    ade = metrics.compute_ade(forecasted_trajectories, gt_trajectory) 
+                    fde = metrics.compute_fde(forecasted_trajectories, gt_trajectory) 
+                    
+                    print('ADE', ade, ' - minADE:', min(ade))
+                    print('FDE', fde, ' - minFDE:', min(fde))
 
 if __name__ == '__main__':
 
@@ -74,11 +78,10 @@ if __name__ == '__main__':
     # path to where the logs live
     parser.add_argument('--dataroot', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/data/val/raw")
     parser.add_argument('--log_id', type=str, default="7103fee0-bd5e-4fa3-a8e0-f9753ca1ecf7") # unique log identifier
-    parser.add_argument('--video', type=bool, default=False)
     parser.add_argument('--submission_file_path', type=str, default="~/workspace/OL_trajectoryprediction/metrics_files/submission_val.parquet") # path of the submission
     parser.add_argument('--save_path', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/videos/") # path where to save the visualization
     parser.add_argument('--ol_path', type=str, default='/home/vgrwbx//workspace/OL_trajectoryprediction/submission_val.parquet') 
-    parser.add_argument('--timestep', type=int, default=109) # timestep
+    parser.add_argument('--timestep', type=int, default=65) # timestep
     args = parser.parse_args()
 
     OL = False
@@ -101,14 +104,14 @@ if __name__ == '__main__':
     
 
     # load challenge submission predictions, note that they might be on a different dataset!
-    submission = ChallengeSubmission.from_parquet(Path(args.submission_file_path))
-    compute_metrics(scenario, submission)
-    
-    if args.video:
-        fig1 = visualization.visualize_predictions(scenario,submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')))
-    else:
-        fig1 = visualization.visualize_predictions(scenario,submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')), args.timestep)
+    nool_submission = ChallengeSubmission.from_parquet(Path(args.submission_file_path))
+    # print(submission)
 
+    compute_metrics(scenario, nool_submission)
+    
+    fig1 = visualization.visualize_predictions(scenario,nool_submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')), args.timestep)
+
+    if not args.timestep == None:
         # Read saved images
         image1 = mpimg.imread(fig1)
 
@@ -122,13 +125,10 @@ if __name__ == '__main__':
     if OL:
         print('\n\n----------------OL--------------------------------')
         # visualize ol submission
-        ol_submission = ChallengeSubmission.from_parquet(Path(args.ol_path))
-        compute_metrics(scenario, ol_submission)
-        if args.video:
-            fig2 = visualization.visualize_predictions(scenario,ol_submission, scenario_static_map, Path(os.path.join(args.save_path, 'ol')))
-        else:
-            fig2 = visualization.visualize_predictions(scenario,ol_submission, scenario_static_map, Path(os.path.join(args.save_path, 'ol')), args.timestep)
-
+        ol_submission = submission.ChallengeSubmission.from_parquet(Path(args.ol_path))
+        compute_metrics(scenario, ol_submission, online_learning=True)
+        fig2 = visualization.visualize_predictions(scenario,ol_submission, scenario_static_map, Path(os.path.join(args.save_path, 'ol')), args.timestep, online_learning= True)
+        if not args.timestep == None:
             image2 = mpimg.imread(fig2)
 
             plt.subplot(1, 2, 2)
@@ -136,5 +136,5 @@ if __name__ == '__main__':
             plt.axis('off')
             plt.title('OL')
 
-    if not args.video: 
+    if not args.timestep == None: 
         plt.show()

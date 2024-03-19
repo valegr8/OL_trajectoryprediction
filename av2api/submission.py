@@ -51,22 +51,47 @@ class ChallengeSubmission:
             ValueError: If for any track, prediction probabilities doesn't match the number of predicted trajectories.
             ValueError: If prediction probabilities for at least one track do not sum to 1.
         """
+
         for scenario_id, scenario_predictions in self.predictions.items():
-            print("Scenario ID:", scenario_id)
-            print("Scenario Predictions:", scenario_predictions)
-            for timestep, timestep_val in scenario_predictions.items():
-                for track_id, (predicted_trajectories, prediction_probabilities) in timestep_val.items():
+            if not type(scenario_id) is tuple:
+                for timestep, timestep_val in scenario_predictions.items():
+                    for track_id, (predicted_trajectories, prediction_probabilities) in timestep_val.items():
+                        # Validate that predicted trajectories are of the correct shape
+                        if predicted_trajectories[0].shape[-2:] != EXPECTED_PREDICTION_SHAPE:
+                            raise ValueError(
+                                f"Prediction for track {track_id} in {scenario_id} found with invalid shape "
+                                f"{predicted_trajectories.shape}, expected (*, {AV2_SCENARIO_PRED_TIMESTEPS}, 2)."
+                            )
+
+                        # Validate that the number of predicted trajectories and prediction probabilities matches
+                        if len(predicted_trajectories) != len(prediction_probabilities):
+                            raise ValueError(
+                                f"Prediction for track {track_id} in {scenario_id} has "
+                                f"{len(predicted_trajectories)} predicted trajectories, but "
+                                f"{len(prediction_probabilities)} probabilities."
+                            )
+
+                        # Validate that prediction probabilities for each track are normalized
+                        prediction_probability_sum = np.sum(prediction_probabilities)
+                        probability_is_normalized = np.isclose(1, prediction_probability_sum)
+                        if not probability_is_normalized:
+                            raise ValueError(
+                                f"Track probabilities must sum to 1, but probabilities for track {track_id} in {scenario_id} "
+                                f"sum up to {prediction_probability_sum}."
+                            )
+            else: 
+                for track_id, (predicted_trajectories, prediction_probabilities) in scenario_predictions.items():
                     # Validate that predicted trajectories are of the correct shape
                     if predicted_trajectories[0].shape[-2:] != EXPECTED_PREDICTION_SHAPE:
                         raise ValueError(
-                            f"Prediction for track {track_id} in {scenario_id} found with invalid shape "
+                            f"Prediction for track {track_id} in {scenario_id[0]} found with invalid shape "
                             f"{predicted_trajectories.shape}, expected (*, {AV2_SCENARIO_PRED_TIMESTEPS}, 2)."
                         )
 
                     # Validate that the number of predicted trajectories and prediction probabilities matches
                     if len(predicted_trajectories) != len(prediction_probabilities):
                         raise ValueError(
-                            f"Prediction for track {track_id} in {scenario_id} has "
+                            f"Prediction for track {track_id} in {scenario_id[0]} has "
                             f"{len(predicted_trajectories)} predicted trajectories, but "
                             f"{len(prediction_probabilities)} probabilities."
                         )
@@ -76,7 +101,7 @@ class ChallengeSubmission:
                     probability_is_normalized = np.isclose(1, prediction_probability_sum)
                     if not probability_is_normalized:
                         raise ValueError(
-                            f"Track probabilities must sum to 1, but probabilities for track {track_id} in {scenario_id} "
+                            f"Track probabilities must sum to 1, but probabilities for track {track_id} in {scenario_id[0]} "
                             f"sum up to {prediction_probability_sum}."
                         )
 
@@ -92,7 +117,6 @@ class ChallengeSubmission:
         """
         # Load submission data and sort rows by descending probability
         submission_df = pd.read_parquet(submission_file_path)
-        print(submission_df)
         submission_df.sort_values(by="probability", inplace=True, ascending=False)
 
         # From serialized data, build scenario-track mapping for predictions
@@ -117,13 +141,12 @@ class ChallengeSubmission:
 
         # Build list of rows for the submission dataframe
         for scenario_id, scenario_predictions in self.predictions.items():
-            for timestep, timestep_val in scenario_predictions.items():
-                for track_id, (predicted_trajectories, prediction_probabilities) in timestep_val.items():
+                for track_id, (predicted_trajectories, prediction_probabilities) in scenario_predictions.items():
                     for prediction_idx in range(len(predicted_trajectories)):
                         prediction_rows.append(
                             (
                                 scenario_id[0],
-                                timestep,
+                                scenario_id[1],
                                 track_id,
                                 prediction_probabilities[prediction_idx],
                                 predicted_trajectories[prediction_idx, :, 0],

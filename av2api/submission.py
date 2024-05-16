@@ -128,7 +128,6 @@ class ChallengeSubmission:
             prediction_probabilities = np.array(track_df.loc[:, "probability"].values.tolist())
 
             submission_dict[scenario_id][timestep][track_id] = (predicted_trajectories, prediction_probabilities)
-
         return cls(predictions=submission_dict)
 
     def to_parquet(self, submission_file_path: Path) -> None:
@@ -153,7 +152,6 @@ class ChallengeSubmission:
                                 predicted_trajectories[prediction_idx, :, 1],
                             )
                         )
-
         # Build submission dataframe and serialize as parquet file
         submission_df = pd.DataFrame(prediction_rows, columns=SUBMISSION_COL_NAMES)
         submission_df.to_parquet(submission_file_path)

@@ -114,3 +114,7 @@ lightning_logs/
 
 # dataset folder
 data/
+*.parquet
+*.csv
+metrics_files/*.parquet
+metrics_files/*.csv

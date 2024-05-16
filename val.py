@@ -31,7 +31,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--model', type=str, required=True)
     parser.add_argument('--root', type=str, required=True)
-    parser.add_argument('--batch_size', type=int, default=8)
+    parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--pin_memory', type=bool, default=True)
     parser.add_argument('--persistent_workers', type=bool, default=True)
@@ -51,7 +51,7 @@ if __name__ == '__main__':
 
     val_dataset = {
         'argoverse_v2': ArgoverseV2Dataset,
-    }[model.dataset](root=args.root, split='olval',
+    }[model.dataset](root=args.root, split='missingolval',
                      transform=TargetBuilder(model.num_historical_steps, model.num_future_steps, online_learning = True))
 
 
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     # Append the header dataframe to the main dataframe
     header_df.to_csv('val_metrics.csv', index=False, header=False)
 
-    val_dataset = val_dataset[:10] 
+    # val_dataset = val_dataset[:10] 
 
     # Clear the memory used by the GPU
     torch.cuda.empty_cache()
@@ -93,5 +93,6 @@ if __name__ == '__main__':
     dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                             pin_memory=args.pin_memory, persistent_workers=args.persistent_workers)
     # print(next(iter(dataloader)))
-    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp', logger=logger, enable_checkpointing=False)
-    trainer.validate(model, dataloader)
+    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.devices, strategy='ddp', logger=logger, enable_checkpointing=False, max_epochs=1)
+    # trainer.validate(model, dataloader)
+    trainer.fit(model, dataloader)

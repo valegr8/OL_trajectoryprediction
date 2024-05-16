@@ -322,6 +322,137 @@ def _plot_static_map_elements(static_map: ArgoverseStaticMap, show_ped_xings: bo
         for ped_xing in static_map.vector_pedestrian_crossings.values():
             _plot_polylines([ped_xing.edge1.xyz, ped_xing.edge2.xyz], alpha=1.0, color=_LANE_SEGMENT_COLOR)
 
+def plot_map(static_map: ArgoverseStaticMap, show_ped_xings: bool = False) -> None:
+    _plot_static_map_elements(static_map, show_ped_xings)
+    plt.show()
+
+def plot_map_history(static_map: ArgoverseStaticMap, scenario: ArgoverseScenario, show_ped_xings: bool = False) -> None:
+    _, ax = plt.subplots()
+    _plot_static_map_elements(static_map, show_ped_xings)
+    _plot_actor_tracks(ax, scenario, 50)
+    plt.show()
+
+def plot_history_predictions(static_map: ArgoverseStaticMap, scenario: ArgoverseScenario, submission: ChallengeSubmission, online_learning:bool = True, timestep: int = 50, show_ped_xings: bool = False) -> None:
+    _, ax = plt.subplots()
+    history = 50
+    coordinates_array = [] 
+    probabilities_array = [] 
+    
+    predictions_val = submission.predictions[scenario.scenario_id]    
+    if len(predictions_val) == 0:
+        print(f'{scenario.scenario_id} does not exist in the submission file')
+
+    plot_target_history(scenario, history,ax,False)
+
+    i = 0
+    #plot prediction
+    if online_learning:
+        # Get an iterator for the dictionary items
+        iterator = iter(predictions_val.items())
+        try:
+            # Get the next prediction item
+            next_key, _ = next(iterator)
+        except StopIteration:
+            # Handle the case when there are no more items
+            next_key = -1
+        exit_check = False
+        for timestep_key, timestep_val in predictions_val.items():
+            # Access the current prediction item
+            try:
+                # Get the next prediction item
+                next_key, _ = next(iterator)
+            except StopIteration:
+                # Handle the case when there are no more items
+                next_key = -1
+
+            if next_key==-1 or (timestep_key >= timestep and timestep<next_key):
+                for track_id, track_val in timestep_val.items():
+                    i +=1
+                    coordinates_array = track_val[0]
+                    probabilities_array = track_val[1]
+
+                    #plot prediction
+                    _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
+                    exit_check = True
+                
+                if exit_check:
+                    break
+    else:
+        for _, inner_value in predictions_val.items():
+            i +=1
+            coordinates_array = inner_value[0]
+            probabilities_array = inner_value[1]
+
+            #plot prediction
+            _plot_polylines(coordinates_array, style='--',line_width=1, probabilities=probabilities_array)
+
+    plt.show()
+
+def plot_target_history(scenario: ArgoverseScenario, timestep: int=50, ax = None, show=True) -> None:
+    if ax == None:
+        _, ax = plt.subplots()
+    
+    track_bounds = None
+    for track in scenario.tracks:
+        # Get timesteps for which actor data is valid
+        actor_timesteps: NDArrayInt = np.array(
+            [object_state.timestep for object_state in track.object_states if object_state.timestep <= timestep]
+        )
+        if actor_timesteps.shape[0] < 1 or actor_timesteps[-1] != timestep:
+            continue
+
+        # Get actor trajectory and heading history
+        actor_trajectory: NDArrayFloat = np.array(
+            [list(object_state.position) for object_state in track.object_states if object_state.timestep <= timestep]
+        )
+        actor_headings: NDArrayFloat = np.array(
+            [object_state.heading for object_state in track.object_states if object_state.timestep <= timestep]
+        )
+
+        # Plot polyline for focal agent location history
+        track_color = _DEFAULT_ACTOR_COLOR
+        if track.category == TrackCategory.FOCAL_TRACK:
+            x_min, x_max = actor_trajectory[:, 0].min(), actor_trajectory[:, 0].max()
+            y_min, y_max = actor_trajectory[:, 1].min(), actor_trajectory[:, 1].max()
+            track_bounds = (x_min, x_max, y_min, y_max)
+            track_color = _FOCAL_AGENT_COLOR
+            # Get the current color
+            if timestep <= 50:
+                _plot_polylines([actor_trajectory], color=track_color, line_width=2)
+            else:
+                black = '#000000'
+                # print('GT:',actor_trajectory[:51])
+                _plot_polylines([actor_trajectory[:51]], color=track_color, line_width=2)
+                _plot_polylines([actor_trajectory[50:]], color=black, line_width=2)
+
+
+            if track.track_id == "AV":
+                track_color = _AV_COLOR
+            elif track.object_type in _STATIC_OBJECT_TYPES:
+                continue
+
+            # Plot bounding boxes for all vehicles and cyclists
+            if track.object_type == ObjectType.VEHICLE:
+                _plot_actor_bounding_box(
+                    ax,
+                    actor_trajectory[-1],
+                    actor_headings[-1],
+                    track_color,
+                    (_ESTIMATED_VEHICLE_LENGTH_M, _ESTIMATED_VEHICLE_WIDTH_M),
+                )
+            elif track.object_type == ObjectType.CYCLIST or track.object_type == ObjectType.MOTORCYCLIST:
+                _plot_actor_bounding_box(
+                    ax,
+                    actor_trajectory[-1],
+                    actor_headings[-1],
+                    track_color,
+                    (_ESTIMATED_CYCLIST_LENGTH_M, _ESTIMATED_CYCLIST_WIDTH_M),
+                )
+            else:
+                plt.plot(actor_trajectory[-1, 0], actor_trajectory[-1, 1], "o", color=track_color, markersize=4)
+    if show:
+        plt.show()
+
 
 def _plot_actor_tracks(ax: plt.Axes, scenario: ArgoverseScenario, timestep: int) -> Optional[_PlotBounds]:
     """Plot all actor tracks (up to a particular time step) associated with an Argoverse scenario.

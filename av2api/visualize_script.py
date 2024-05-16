@@ -77,11 +77,11 @@ if __name__ == '__main__':
     # the following pattern: "log_map_archive_{log_id}.json".
     # path to where the logs live
     parser.add_argument('--dataroot', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/data/val/raw")
-    parser.add_argument('--log_id', type=str, default="7103fee0-bd5e-4fa3-a8e0-f9753ca1ecf7") # unique log identifier
-    parser.add_argument('--submission_file_path', type=str, default="~/workspace/OL_trajectoryprediction/metrics_files/submission_val.parquet") # path of the submission
+    parser.add_argument('--log_id', type=str, default="705bf89c-7464-4f36-bec3-ee61d2b2f174") # unique log identifier
+    parser.add_argument('--submission_file_path', type=str, default="~/workspace/OL_trajectoryprediction/metrics_files/submission_nool_val.parquet") # path of the submission, no ol
     parser.add_argument('--save_path', type=str, default="/home/vgrwbx/workspace/OL_trajectoryprediction/videos/") # path where to save the visualization
-    parser.add_argument('--ol_path', type=str, default='/home/vgrwbx//workspace/OL_trajectoryprediction/submission_val.parquet') 
-    parser.add_argument('--timestep', type=int, default=65) # timestep
+    parser.add_argument('--ol_path', type=str, default='/home/vgrwbx/workspace/OL_trajectoryprediction/submission_05.parquet') 
+    parser.add_argument('--timestep', type=int, default=50) # timestep
     args = parser.parse_args()
 
     OL = False
@@ -104,12 +104,12 @@ if __name__ == '__main__':
     
 
     # load challenge submission predictions, note that they might be on a different dataset!
-    nool_submission = ChallengeSubmission.from_parquet(Path(args.submission_file_path))
+    nool_submission = submission.ChallengeSubmission.from_parquet(Path(args.submission_file_path))
     # print(submission)
 
-    compute_metrics(scenario, nool_submission)
+    compute_metrics(scenario, nool_submission, True)
     
-    fig1 = visualization.visualize_predictions(scenario,nool_submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')), args.timestep)
+    fig1 = visualization.visualize_predictions(scenario,nool_submission, scenario_static_map, Path(os.path.join(args.save_path, 'nool')), args.timestep, True)
 
     if not args.timestep == None:
         # Read saved images

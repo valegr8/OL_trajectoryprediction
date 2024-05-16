@@ -583,6 +583,7 @@ class QCNet(pl.LightningModule):
 
                     if (i % int(self.ol_time_slice/2) == 0):
                         pred = self(data)
+                        self.save_trajectory(data, pred)
                     else:
                         with torch.no_grad():
                             pred = self(data)
@@ -595,7 +596,7 @@ class QCNet(pl.LightningModule):
 
                     
                     self.save_loss.append(loss.cpu().detach().numpy())
-                    # self.save_trajectory(data, pred)
+                    
                     # print(i,loss)
 
                     # self.save_loss_grad.append(loss)
@@ -613,12 +614,6 @@ class QCNet(pl.LightningModule):
                                 with open('/home/vgrwbx/workspace/OL_trajectoryprediction/losses.csv', 'a', newline='') as losses_file:
                                     writer_losses = csv.writer(losses_file)
                                     writer_losses.writerow([data['scenario_id'][0], i-int(self.ol_time_slice/2)+j, no_grad_loss])
-
-                                with open('/home/vgrwbx/workspace/OL_trajectoryprediction/velocities.csv', 'a', newline='') as vel_file:
-                                    writer_losses = csv.writer(vel_file)
-                                    writer_losses.writerow([data['scenario_id'][0], i-int(self.ol_time_slice/2)+j, data['agent']['velocity'][data['agent']['category'] == 3, i-int(self.ol_time_slice/2)+j-1, i-int(self.ol_time_slice/2)+j-1]])
-
-
 
                                 z_score = (no_grad_loss - mu) / sigma
             
